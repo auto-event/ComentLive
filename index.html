@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>YT AutoChat Pro v2</title>
+<title>YT AutoChat Pro v2 - Multi Akun</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://accounts.google.com/gsi/client" async defer onload="gisReady=true"></script>
 <script src="https://apis.google.com/js/api.js" async defer onload="initGapi()"></script>
@@ -23,7 +23,7 @@
     <div class="w-12 h-12 bg-red-600 rounded-2xl flex items-center justify-center text-xl">▶</div>
     <div>
       <h1 class="text-xl font-bold">YT AutoChat Pro v2</h1>
-      <p class="text-xs text-zinc-400">gapi.client • OAuth (GIS) • YouTube Data API v3</p>
+      <p class="text-xs text-zinc-400">gapi.client • Multi Akun • OAuth (GIS) • YouTube Data API v3</p>
     </div>
   </div>
   <div id="statusBadge" class="px-3 py-1 rounded-full bg-zinc-800 text-sm">⚪ Belum Konek</div>
@@ -43,22 +43,40 @@
   </div>
 </div>
 
-<!-- Connection -->
+<!-- Connection & Multi Account -->
 <div class="card p-5 mb-6">
-  <h2 class="font-bold mb-3">🔌 Connection</h2>
-  <label class="text-xs text-zinc-400">YOUTUBE VIDEO URL / ID</label>
-  <input id="videoInput" class="input mt-1 mb-3" value="0BXFjMF3gco" placeholder="videoId atau URL">
+  <h2 class="font-bold mb-3">🔌 Connection & Manajemen Akun</h2>
+  
+  <!-- Multi Account UI -->
+  <div class="bg-zinc-900 border border-zinc-800 rounded-xl p-4 mb-4">
+    <label class="text-xs text-zinc-400 font-bold block mb-2">PILIH AKUN AKTIF</label>
+    <div class="flex gap-2 items-center mb-3">
+      <select id="accountSelect" class="input flex-1">
+        <option value="">-- Belum ada akun terhubung --</option>
+      </select>
+      <button id="addAccountBtn" class="btn-red px-4 py-2 w-auto whitespace-nowrap">+ Tambah Akun</button>
+      <button id="removeAccountBtn" class="bg-zinc-800 px-4 py-2 rounded-lg text-sm" disabled>Hapus</button>
+    </div>
+    <div id="activeAccountInfo" class="hidden text-xs text-green-400 mb-2">Akun Aktif: <span id="activeAccountEmail" class="font-bold"></span></div>
+  </div>
+
   <label class="text-xs text-zinc-400">GOOGLE OAUTH CLIENT ID</label>
   <input id="clientIdInput" class="input mt-1 mb-3" placeholder="xxx.apps.googleusercontent.com">
+  
   <div class="bg-yellow-950 border border-yellow-800 rounded-lg p-3 text-xs mb-3">
     <div>Di GCP → Credentials → OAuth Client (Web) → <b>Authorized JavaScript origins</b> tambahkan origin halaman ini:</div>
     <code id="originBox" class="bg-black px-1 break-all"></code>
     <div class="mt-1">Aktifkan juga <b>YouTube Data API v3</b>. Kalau kamu buka file ini via <code class="bg-black px-1">file://</code>, login Google akan gagal — jalankan lewat GitHub Pages atau <code class="bg-black px-1">localhost</code>.</div>
   </div>
-  <div class="grid grid-cols-3 gap-2">
-    <button id="connectBtn" class="btn-red col-span-2">⚡ Connect Google & Get LiveChat ID</button>
-    <button id="logoutBtn" class="w-full py-3 bg-zinc-800 rounded-xl text-sm" onclick="logout()">Logout / Hapus sesi</button>
+
+  <label class="text-xs text-zinc-400">YOUTUBE VIDEO URL / ID (Target Utama)</label>
+  <input id="videoInput" class="input mt-1 mb-3" value="0BXFjMF3gco" placeholder="videoId atau URL">
+  
+  <div class="grid grid-cols-2 gap-2">
+    <button id="connectBtn" class="btn-red">⚡ Connect ke Video & Dapatkan LiveChat ID</button>
+    <button id="logoutBtn" class="w-full py-3 bg-zinc-800 rounded-xl text-sm" onclick="logoutAll()">Hapus Semua Sesi</button>
   </div>
+  
   <div id="chatIdBox" class="hidden mt-4 p-3 bg-green-950 border border-green-800 rounded-xl">
     <p class="text-xs text-green-400">ACTIVE LIVE CHAT ID</p>
     <p id="chatIdText" class="font-mono text-xs break-all mt-1"></p>
@@ -90,7 +108,7 @@
     <button id="manualSend" class="px-4 bg-zinc-800 rounded-lg" disabled>Send</button>
   </div>
   <p id="counter" class="text-[11px] text-zinc-400 mt-2">Terkirim: 0 • Estimasi kuota: 0 / 10.000 unit</p>
-  <p class="text-[11px] text-zinc-500 mt-1">Video harus LIVE sekarang (bukan Upcoming/Ended). Tiap pesan memakai ±20 unit kuota API; kuota default 10.000/hari ≈ 500 pesan. Batas pesan YouTube: 200 karakter.</p>
+  <p class="text-[11px] text-zinc-500 mt-1">Video harus LIVE sekarang. Tiap pesan memakai ±20 unit kuota API; kuota default 10.000/hari ≈ 500 pesan. Batas pesan YouTube: 200 karakter.</p>
 </div>
 
 <!-- Logs -->
@@ -101,60 +119,14 @@
 
 <script>
 const $ = id => document.getElementById(id);
-let csvData = [], accessToken = null, tokenExpiresAt = 0, liveChatId = null;
-let queue = [], qIdx = 0, myChannelId = null;
+let accounts = []; // Array of { id, email, name, picture, accessToken, expiresAt, myChannelId }
+let activeAccountId = null;
+let liveChatId = null;
+let queue = [], qIdx = 0;
 let running = false, timer = null, seqIdx = 0, lastMsg = null, sentCount = 0, sending = false;
 let gisReady = false, gapiReadyPromise = null;
 
 $('originBox').textContent = location.origin === 'null' ? 'file:// (tidak didukung)' : location.origin;
-/* ---------- Auto save ---------- */
-const KEY = 'ytac_state';
-let sessionApplied = false;
-function saveState(){
-  try { localStorage.setItem(KEY, JSON.stringify({
-    clientId: $('clientIdInput').value.trim(), video: $('videoInput').value.trim(),
-    interval: $('intervalInput').value, random: $('randomCheck').checked, msgs: getMsgs(),
-    token: accessToken, exp: tokenExpiresAt, chatId: liveChatId, queue, rotate: $('rotateCheck').checked
-  })); } catch(e){}
-}
-function loadState(){ try { return JSON.parse(localStorage.getItem(KEY) || 'null'); } catch(e){ return null; } }
-function restoreState(){
-  const s = loadState(); if (!s) return;
-  if (s.clientId) $('clientIdInput').value = s.clientId;
-  if (s.video) $('videoInput').value = s.video;
-  if (s.interval) $('intervalInput').value = s.interval;
-  if (s.rotate) $('rotateCheck').checked = true;
-  if (typeof s.random === 'boolean') $('randomCheck').checked = s.random;
-  if (s.msgs && s.msgs.length){ $('msgList').innerHTML = ''; s.msgs.forEach(addRow); }
-  if (gapiReadyPromise) gapiReadyPromise.then(applySavedToken).catch(() => {});
-  log('Pengaturan dipulihkan dari penyimpanan lokal');
-}
-function applySavedToken(){
-  if (sessionApplied) return;
-  const s = loadState(); if (!s || !s.token) return;
-  sessionApplied = true;
-  if (s.exp > Date.now() + 60000){
-    accessToken = s.token; tokenExpiresAt = s.exp;
-    gapi.client.setToken({ access_token: accessToken });
-    setBadge('🟢 Sesi dipulihkan', 'bg-green-900 text-green-200');
-    if (s.chatId){ liveChatId = s.chatId; $('chatIdText').textContent = liveChatId; $('chatIdBox').classList.remove('hidden'); setReady(true); }
-    if (s.queue && s.queue.length){ queue = s.queue; renderQueue(); }
-    refreshButtons();
-    log('Sesi login dipulihkan, tidak perlu login ulang', 'SUCCESS');
-  } else {
-    log('Token lama sudah habis (batas Google ±1 jam). Klik Connect — biasanya tanpa layar izin ulang.');
-  }
-}
-function logout(){
-  try { if (accessToken) google.accounts.oauth2.revoke(accessToken); } catch(e){}
-  accessToken = null; tokenExpiresAt = 0; liveChatId = null; stop && running && stop();
-  try { localStorage.removeItem(KEY); } catch(e){}
-  $('chatIdBox').classList.add('hidden'); setReady(false); setBadge('⚪ Belum Konek', 'bg-zinc-800');
-  log('Sesi dihapus');
-}
-document.addEventListener('input', saveState);
-document.addEventListener('change', saveState);
-document.addEventListener('click', () => setTimeout(saveState, 0));
 
 /* ---------- Utils ---------- */
 function log(msg, type='INFO'){
@@ -163,7 +135,7 @@ function log(msg, type='INFO'){
   const row = document.createElement('div'); row.className = 'mb-1';
   const t = document.createElement('span'); t.className = 'text-zinc-600'; t.textContent = new Date().toLocaleTimeString('id-ID') + ' ';
   const b = document.createElement('span'); b.className = 'bg-zinc-800 px-1 rounded text-[10px]'; b.textContent = type;
-  const m = document.createElement('span'); m.className = c; m.textContent = ' ' + msg;   // textContent => aman dari XSS
+  const m = document.createElement('span'); m.className = c; m.textContent = ' ' + msg;
   row.append(t, b, m); el.appendChild(row); el.scrollTop = el.scrollHeight;
 }
 function extractVideoId(input){
@@ -183,9 +155,138 @@ function errInfo(e){
 }
 function setBadge(text, cls){ $('statusBadge').textContent = text; $('statusBadge').className = 'px-3 py-1 rounded-full text-sm ' + cls; }
 function updateCounter(){ $('counter').textContent = `Terkirim: ${sentCount} • Estimasi kuota: ${sentCount*20} / 10.000 unit`; }
-function setReady(){ refreshButtons(); }
 
-/* ---------- CSV (parser RFC4180 sederhana: quote, koma & newline dalam kutip) ---------- */
+/* ---------- Multi Account Logic ---------- */
+const getActiveAccount = () => accounts.find(a => a.id === activeAccountId);
+const getActiveToken = () => {
+  const acc = getActiveAccount();
+  if (!acc) return null;
+  if (Date.now() > acc.expiresAt - 30000) return null; // Expired
+  return acc.accessToken;
+};
+
+function renderAccounts() {
+  const sel = $('accountSelect');
+  sel.innerHTML = '<option value="">-- Pilih Akun --</option>';
+  accounts.forEach(acc => {
+    const opt = document.createElement('option');
+    opt.value = acc.id;
+    opt.textContent = `${acc.email} (${acc.name})`;
+    if (acc.id === activeAccountId) opt.selected = true;
+    sel.appendChild(opt);
+  });
+  
+  const active = getActiveAccount();
+  if (active) {
+    $('activeAccountInfo').classList.remove('hidden');
+    $('activeAccountEmail').textContent = active.email;
+    $('removeAccountBtn').disabled = false;
+    
+    if (Date.now() > active.expiresAt - 30000) {
+      setBadge('🟠 Token Kadaluarsa', 'bg-orange-900 text-orange-200');
+      log(`Token untuk ${active.email} sudah kadaluarsa. Silakan hapus dan tambah ulang akun ini.`, 'ERROR');
+    } else {
+      setBadge(`🟢 ${active.email}`, 'bg-green-900 text-green-200');
+    }
+  } else {
+    $('activeAccountInfo').classList.add('hidden');
+    $('removeAccountBtn').disabled = true;
+    setBadge('⚪ Belum Konek', 'bg-zinc-800');
+  }
+  refreshButtons();
+}
+
+$('accountSelect').onchange = (e) => {
+  if (running) {
+    log('Hentikan bot terlebih dahulu sebelum mengganti akun!', 'ERROR');
+    e.target.value = activeAccountId || '';
+    return;
+  }
+  activeAccountId = e.target.value;
+  const acc = getActiveAccount();
+  if (acc && Date.now() < acc.expiresAt - 30000) {
+    gapi.client.setToken({ access_token: acc.accessToken });
+  } else {
+    gapi.client.setToken(null);
+  }
+  // Reset koneksi live chat karena beda akun beda sesi
+  liveChatId = null;
+  $('chatIdBox').classList.add('hidden');
+  renderAccounts();
+  saveState();
+  log(`Beralih ke akun: ${acc ? acc.email : 'Tidak ada'}`, 'INFO');
+};
+
+$('removeAccountBtn').onclick = () => {
+  if (!activeAccountId) return;
+  if (running) { log('Hentikan bot terlebih dahulu!', 'ERROR'); return; }
+  
+  const removed = accounts.find(a => a.id === activeAccountId);
+  accounts = accounts.filter(a => a.id !== activeAccountId);
+  activeAccountId = accounts.length > 0 ? accounts[0].id : null;
+  
+  const acc = getActiveAccount();
+  if (acc && Date.now() < acc.expiresAt - 30000) gapi.client.setToken({ access_token: acc.accessToken });
+  else gapi.client.setToken(null);
+  
+  liveChatId = null;
+  $('chatIdBox').classList.add('hidden');
+  renderAccounts();
+  saveState();
+  log(`Akun ${removed ? removed.email : ''} dihapus.`, 'INFO');
+};
+
+/* ---------- Auto save ---------- */
+const KEY = 'ytac_state_v2';
+function saveState(){
+  try { localStorage.setItem(KEY, JSON.stringify({
+    clientId: $('clientIdInput').value.trim(), video: $('videoInput').value.trim(),
+    interval: $('intervalInput').value, random: $('randomCheck').checked, msgs: getMsgs(),
+    accounts: accounts, activeAccountId: activeAccountId, liveChatId: liveChatId, queue, rotate: $('rotateCheck').checked
+  })); } catch(e){}
+}
+function loadState(){ try { return JSON.parse(localStorage.getItem(KEY) || 'null'); } catch(e){ return null; } }
+function restoreState(){
+  const s = loadState(); if (!s) return;
+  if (s.clientId) $('clientIdInput').value = s.clientId;
+  if (s.video) $('videoInput').value = s.video;
+  if (s.interval) $('intervalInput').value = s.interval;
+  if (s.rotate) $('rotateCheck').checked = true;
+  if (typeof s.random === 'boolean') $('randomCheck').checked = s.random;
+  if (s.msgs && s.msgs.length){ $('msgList').innerHTML = ''; s.msgs.forEach(addRow); }
+  
+  if (s.accounts && s.accounts.length) {
+    accounts = s.accounts;
+    activeAccountId = s.activeAccountId;
+    if (gapiReadyPromise) gapiReadyPromise.then(() => {
+      const acc = getActiveAccount();
+      if (acc && Date.now() < acc.expiresAt - 30000) {
+        gapi.client.setToken({ access_token: acc.accessToken });
+        log('Sesi akun dipulihkan.', 'SUCCESS');
+      } else if (acc) {
+        log('Token akun kadaluarsa. Silakan login ulang.', 'ERROR');
+      }
+      if (s.liveChatId) { liveChatId = s.liveChatId; $('chatIdText').textContent = liveChatId; $('chatIdBox').classList.remove('hidden'); }
+      if (s.queue && s.queue.length) { queue = s.queue; renderQueue(); }
+      renderAccounts();
+    }).catch(() => {});
+  }
+  log('Pengaturan dipulihkan dari penyimpanan lokal');
+}
+function logoutAll(){
+  if (running) { log('Hentikan bot terlebih dahulu!', 'ERROR'); return; }
+  accounts.forEach(acc => { try { if(acc.accessToken) google.accounts.oauth2.revoke(acc.accessToken); } catch(e){} });
+  accounts = []; activeAccountId = null; liveChatId = null; queue = [];
+  gapi.client.setToken(null);
+  try { localStorage.removeItem(KEY); } catch(e){}
+  $('chatIdBox').classList.add('hidden'); renderAccounts(); renderQueue();
+  log('Semua sesi akun dihapus');
+}
+document.addEventListener('input', saveState);
+document.addEventListener('change', saveState);
+document.addEventListener('click', () => setTimeout(saveState, 0));
+
+/* ---------- CSV ---------- */
 function parseCSV(text){
   text = text.replace(/^\uFEFF/, '');
   const rows = []; let row = [], cur = '', inQ = false;
@@ -252,47 +353,78 @@ function initGapi(){
       try {
         await gapi.client.init({});
         await gapi.client.load('https://www.googleapis.com/discovery/v1/apis/youtube/v3/rest');
+        await gapi.client.load('https://www.googleapis.com/discovery/v1/apis/oauth2/v2/rest'); // Load OAuth2 untuk ambil email
         log('GAPI client + YouTube API siap');
         resolve();
-        applySavedToken();
       } catch(e){ log('Gagal load GAPI: ' + errInfo(e).msg, 'ERROR'); reject(e); }
     });
   });
   gapiReadyPromise.catch(() => {});
 }
 
-$('connectBtn').onclick = async () => {
+$('addAccountBtn').onclick = async () => {
   const clientId = $('clientIdInput').value.trim();
-  const vid = extractVideoId($('videoInput').value);
   if (location.protocol === 'file:'){ log('Halaman dibuka via file:// — Google OAuth tidak bisa. Pakai GitHub Pages / localhost.', 'ERROR'); return; }
   if (!clientId.endsWith('.apps.googleusercontent.com')){ log('Client ID tidak valid', 'ERROR'); return; }
-  if (!vid){ log('Video ID / URL tidak valid', 'ERROR'); return; }
   if (!gisReady || !gapiReadyPromise){ log('Library Google belum termuat (cek koneksi / adblock), coba lagi.', 'ERROR'); return; }
   try { localStorage.setItem('ytac_clientId', clientId); } catch(e){}
 
-  log(`Connect ke ${vid}...`);
+  log('Memulai proses login akun baru...');
   const tokenClient = google.accounts.oauth2.initTokenClient({
     client_id: clientId,
-    scope: 'https://www.googleapis.com/auth/youtube.force-ssl',
+    scope: 'https://www.googleapis.com/auth/youtube.force-ssl openid email profile',
     callback: async resp => {
       if (resp.error){ log('Auth error: ' + resp.error, 'ERROR'); return; }
-      accessToken = resp.access_token;
-      tokenExpiresAt = Date.now() + (Number(resp.expires_in) || 3600) * 1000;
-      try { await gapiReadyPromise; } catch(e){ return; }
+      const accessToken = resp.access_token;
+      const expiresAt = Date.now() + (Number(resp.expires_in) || 3600) * 1000;
       gapi.client.setToken({ access_token: accessToken });
-      setBadge('🟢 Terhubung', 'bg-green-900 text-green-200');
-      log('OAuth OK', 'SUCCESS');
+      
+      let email = 'Unknown', name = 'Unknown', picture = '';
+      try {
+        const ui = await gapi.client.oauth2.userinfo.get();
+        email = ui.result.email;
+        name = ui.result.name;
+        picture = ui.result.picture;
+      } catch(e) { log('Gagal ambil info user, pakai Channel ID sebagai identifier', 'ERROR'); }
+
+      let myChannelId = null;
+      try {
+        const me = await gapi.client.youtube.channels.list({ part: 'id', mine: true });
+        myChannelId = me.result.items && me.result.items[0] ? me.result.items[0].id : null;
+      } catch(e) {}
+
+      const accountId = email !== 'Unknown' ? email : (myChannelId || Date.now().toString());
+      const account = { id: accountId, email, name, picture, accessToken, expiresAt, myChannelId };
+      
+      const idx = accounts.findIndex(a => a.id === account.id);
+      if(idx >= 0) accounts[idx] = account; else accounts.push(account);
+      
+      activeAccountId = account.id;
+      gapi.client.setToken({ access_token: accessToken });
+      
+      renderAccounts();
       saveState();
-      await getLiveChatId(vid);
-      saveState();
+      log(`Akun ${email} berhasil ditambahkan & diaktifkan`, 'SUCCESS');
     },
     error_callback: err => log('Popup login gagal/ditutup: ' + (err.type || err.message), 'ERROR')
   });
   tokenClient.requestAccessToken();
 };
 
+$('connectBtn').onclick = async () => {
+  const vid = extractVideoId($('videoInput').value);
+  const token = getActiveToken();
+  
+  if (!token) { log('Pilih akun yang valid terlebih dahulu (atau login ulang).', 'ERROR'); return; }
+  if (!vid){ log('Video ID / URL tidak valid', 'ERROR'); return; }
+  
+  gapi.client.setToken({ access_token: token });
+  await getLiveChatId(vid);
+  saveState();
+};
+
 async function getLiveChatId(videoId){
-  liveChatId = null; setReady(false); $('chatIdBox').classList.add('hidden');
+  liveChatId = null; refreshButtons(); $('chatIdBox').classList.add('hidden');
   try {
     const res = await gapi.client.youtube.videos.list({ part: 'liveStreamingDetails,snippet', id: videoId });
     const item = res.result.items && res.result.items[0];
@@ -306,7 +438,7 @@ async function getLiveChatId(videoId){
     }
     liveChatId = d.activeLiveChatId;
     $('chatIdText').textContent = liveChatId; $('chatIdBox').classList.remove('hidden');
-    setReady(true);
+    refreshButtons();
     log('LiveChatId: ' + liveChatId, 'SUCCESS');
   } catch(e){ log('getLiveChatId: ' + errInfo(e).msg, 'ERROR'); }
 }
@@ -315,10 +447,11 @@ async function getLiveChatId(videoId){
 const FATAL = ['liveChatEnded','liveChatDisabled','liveChatNotFound','forbidden','quotaExceeded','dailyLimitExceeded','insufficientPermissions','authError'];
 
 async function sendMessage(text, chatId = liveChatId){
-  if (!chatId || !accessToken){ log('Belum terhubung', 'ERROR'); return { ok:false, fatal:true }; }
-  if (Date.now() > tokenExpiresAt - 30000){ log('Token kedaluwarsa — klik Connect lagi.', 'ERROR'); setBadge('🟠 Token habis', 'bg-orange-900 text-orange-200'); return { ok:false, fatal:true }; }
+  const token = getActiveToken();
+  if (!chatId || !token){ log('Belum terhubung / token kadaluarsa', 'ERROR'); return { ok:false, fatal:true }; }
   text = text.slice(0, 200);
   try {
+    gapi.client.setToken({ access_token: token });
     await gapi.client.youtube.liveChatMessages.insert({
       part: 'snippet',
       resource: { snippet: { liveChatId: chatId, type: 'textMessageEvent', textMessageDetails: { messageText: text } } }
@@ -337,7 +470,7 @@ async function sendMessage(text, chatId = liveChatId){
 
 function pickMessage(msgs){
   if ($('randomCheck').checked && msgs.length > 1){
-    let m; do { m = msgs[Math.floor(Math.random() * msgs.length)]; } while (m === lastMsg);  // YouTube menolak pesan duplikat berturut-turut
+    let m; do { m = msgs[Math.floor(Math.random() * msgs.length)]; } while (m === lastMsg);
     return lastMsg = m;
   }
   return lastMsg = msgs[seqIdx++ % msgs.length];
@@ -359,7 +492,7 @@ function scheduleNext(){
       else qIdx++;
     } else r = await sendMessage(pickMessage(msgs));
     if (r.fatal || (r.dropChat && !rotateOn())) return stop('Berhenti otomatis karena error fatal.');
-    scheduleNext();          // jadwal berikutnya setelah request selesai => tidak overlap
+    scheduleNext();
   }, sec * 1000);
 }
 function stop(reason){
@@ -370,13 +503,15 @@ function stop(reason){
 
 $('startBtn').onclick = () => {
   if (!getMsgs().length){ log('Pesan kosong', 'ERROR'); return; }
+  if (!getActiveToken()) { log('Akun belum dipilih / token kadaluarsa.', 'ERROR'); return; }
   if (rotateOn() ? !queue.length : !liveChatId){ log(rotateOn() ? 'Muat antrian dulu' : 'Connect dulu', 'ERROR'); return; }
   running = true; seqIdx = 0; qIdx = 0;
   $('startBtn').disabled = true; $('stopBtn').disabled = false;
+  $('accountSelect').disabled = true; // Kunci akun saat berjalan
   log(`START tiap ${Math.max(5, parseInt($('intervalInput').value) || 30)}s, ${getMsgs().length} pesan`, 'SEND');
   scheduleNext();
 };
-$('stopBtn').onclick = () => stop();
+$('stopBtn').onclick = () => { stop(); $('accountSelect').disabled = false; };
 
 async function manualSend(){
   const t = $('manualInput').value.trim(); if (!t || sending) return;
@@ -390,9 +525,12 @@ $('clearLog').onclick = () => $('logs').innerHTML = '';
 /* ---------- Rotasi antar video (hanya channel milik akun login) ---------- */
 const rotateOn = () => $('rotateCheck').checked;
 function refreshButtons(){
-  $('startBtn').disabled = !(rotateOn() ? queue.length > 0 : !!liveChatId) || running;
-  $('manualSend').disabled = !liveChatId;
-  $('loadQueueBtn').disabled = !accessToken;
+  const hasToken = !!getActiveToken();
+  $('startBtn').disabled = !(rotateOn() ? queue.length > 0 : !!liveChatId) || running || !hasToken;
+  $('manualSend').disabled = !liveChatId || !hasToken;
+  $('loadQueueBtn').disabled = !hasToken;
+  $('connectBtn').disabled = !hasToken;
+  $('removeAccountBtn').disabled = !activeAccountId || running;
 }
 function renderQueue(){
   const el = $('queueList'); el.innerHTML = '';
@@ -400,18 +538,21 @@ function renderQueue(){
   queue.forEach((q, i) => { const d = document.createElement('div'); d.textContent = `${i + 1}. ${q.title} (${q.videoId})`; el.appendChild(d); });
 }
 async function loadQueue(){
-  if (!accessToken){ log('Connect dulu', 'ERROR'); return; }
+  const token = getActiveToken();
+  if (!token){ log('Login akun dulu', 'ERROR'); return; }
+  const acc = getActiveAccount();
+  if (!acc.myChannelId) { log('Akun ini tidak memiliki Channel YouTube.', 'ERROR'); return; }
+  
   const ids = [...new Set(csvData.map(r => r.videoId).filter(id => /^[\w-]{11}$/.test(id)))].slice(0, 50);
   if (!ids.length){ log('CSV kosong / belum dimuat', 'ERROR'); return; }
+  
   try {
-    const me = await gapi.client.youtube.channels.list({ part: 'id,snippet', mine: true });
-    myChannelId = me.result.items && me.result.items[0] ? me.result.items[0].id : null;
-    if (!myChannelId){ log('Akun ini tidak punya channel YouTube', 'ERROR'); return; }
+    gapi.client.setToken({ access_token: token });
     const res = await gapi.client.youtube.videos.list({ part: 'liveStreamingDetails,snippet', id: ids.join(',') });
     const found = res.result.items || [], next = [];
     for (const it of found){
       const d = it.liveStreamingDetails || {}, t = it.snippet.title;
-      if (it.snippet.channelId !== myChannelId){ log('Dilewati (bukan channel akun ini): ' + t, 'ERROR'); continue; }
+      if (it.snippet.channelId !== acc.myChannelId){ log('Dilewati (bukan channel akun ini): ' + t, 'ERROR'); continue; }
       if (d.actualEndTime){ log('Dilewati (sudah berakhir): ' + t); continue; }
       if (!d.activeLiveChatId){ log('Dilewati (live chat belum aktif): ' + t); continue; }
       next.push({ videoId: it.id, title: t, chatId: d.activeLiveChatId });
@@ -423,6 +564,8 @@ async function loadQueue(){
 }
 $('loadQueueBtn').onclick = loadQueue;
 $('rotateCheck').addEventListener('change', refreshButtons);
+
+/* ---------- Init ---------- */
 restoreState();
 refreshButtons();
 </script>
