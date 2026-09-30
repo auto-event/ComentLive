@@ -3,9 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>YT AutoChat Pro - Clean Edition</title>
+<title>YT AutoChat Pro - FIXED REAL</title>
 <script src="https://cdn.tailwindcss.com"></script>
-<script src="https://accounts.google.com/gsi/client" async defer></script>
+<script src="https://accounts.google.com/gsi/client"></script>
 <script src="https://apis.google.com/js/api.js"></script>
 <style>
   body { background:#0f0f0f; color:#e5e5e5; font-family: Inter, sans-serif; }
@@ -13,470 +13,240 @@
   .input { background:#0f0f0f; border:1px solid #333; border-radius:10px; padding:12px; width:100%; color:white; }
   .btn-red { background:#ff0000; color:white; padding:12px 20px; border-radius:10px; font-weight:bold; width:100%; }
   .btn-red:disabled { opacity:0.5; }
-  .log { font-family: monospace; font-size:13px; }
+  .log { font-family: monospace; font-size:12px; }
 </style>
 </head>
 <body class="p-4 max-w-6xl mx-auto">
 
-<!-- HEADER -->
 <div class="flex items-center justify-between mb-6">
   <div class="flex items-center gap-3">
-    <div class="w-12 h-12 bg-red-600 rounded-2xl flex items-center justify-center text-2xl">▶</div>
+    <div class="w-12 h-12 bg-red-600 rounded-2xl flex items-center justify-center text-xl">▶</div>
     <div>
-      <h1 class="text-xl font-bold">YT AutoChat Pro - Clean</h1>
-      <p class="text-sm text-zinc-400">HTML + JS polos • gampang di-edit • REAL API</p>
+      <h1 class="text-xl font-bold">YT AutoChat Pro - FIXED</h1>
+      <p class="text-xs text-zinc-400">Fix Failed to fetch • pakai gapi.client • REAL API</p>
     </div>
   </div>
   <div id="statusBadge" class="px-3 py-1 rounded-full bg-zinc-800 text-sm">⚪ Belum Konek</div>
 </div>
 
-<!-- 1. CSV MANAGER -->
+<!-- CSV -->
 <div class="card p-5 mb-6">
   <h2 class="font-bold mb-3">📁 CSV Live Manager</h2>
-  <p class="text-sm text-zinc-400 mb-3">Upload file CSV lu (videoId,title,jadwal_lokal,...). Gak ada sample lagi.</p>
-  
-  <div id="dropZone" class="border-2 border-dashed border-zinc-700 rounded-xl p-6 text-center cursor-pointer hover:border-red-600">
-    <p>Klik atau Drag & Drop CSV ke sini</p>
+  <div id="dropZone" class="border-2 border-dashed border-zinc-700 rounded-xl p-6 text-center cursor-pointer">
+    Klik / Drag CSV kesini
     <input type="file" id="csvFile" accept=".csv" class="hidden">
-    <p class="text-xs text-zinc-500 mt-2">Format: videoId,title,jadwal_lokal,jadwal_utc,privacy,link_watch,channel</p>
   </div>
-
-  <div id="csvStats" class="hidden mt-4 p-3 bg-zinc-900 rounded-lg text-sm"></div>
-
-  <div class="mt-3 flex gap-2">
-    <input id="csvSearch" placeholder="Cari title..." class="input">
-    <button id="clearCsv" class="px-4 py-2 bg-zinc-800 rounded-lg">Clear</button>
-  </div>
-
-  <div class="overflow-auto max-h-[350px] mt-4">
-    <table class="w-full text-sm">
-      <thead class="sticky top-0 bg-zinc-900">
-        <tr class="text-left text-zinc-400">
-          <th class="p-2">☑</th>
-          <th class="p-2">videoId</th>
-          <th class="p-2">Title</th>
-          <th class="p-2">Jadwal</th>
-          <th class="p-2">Aksi</th>
-        </tr>
-      </thead>
-      <tbody id="csvTable"></tbody>
-    </table>
+  <div id="csvStats" class="hidden mt-3 text-xs text-zinc-400"></div>
+  <input id="csvSearch" placeholder="Cari title..." class="input mt-3">
+  <div class="overflow-auto max-h-[300px] mt-3">
+    <table class="w-full text-xs"><tbody id="csvTable"></tbody></table>
   </div>
 </div>
 
-<!-- 2. CONNECTION -->
+<!-- Connection -->
 <div class="card p-5 mb-6">
-  <h2 class="font-bold mb-3">🔌 Connection</h2>
-  
-  <label class="text-sm text-zinc-400">YOUTUBE VIDEO URL / ID</label>
-  <div class="flex gap-2 mt-1 mb-4">
-    <input id="videoInput" class="input" placeholder="https://www.youtube.com/watch?v=... atau videoId">
-    <button id="pasteBtn" class="px-3 bg-zinc-800 rounded-lg">📋</button>
+  <h2 class="font-bold mb-3">🔌 Connection - REAL MODE</h2>
+  <label class="text-xs text-zinc-400">YOUTUBE VIDEO URL / ID</label>
+  <input id="videoInput" class="input mt-1 mb-3" value="0BXFjMF3gco" placeholder="videoId">
+  <label class="text-xs text-zinc-400">GOOGLE OAUTH CLIENT ID</label>
+  <input id="clientIdInput" class="input mt-1 mb-3" placeholder="xxx.apps.googleusercontent.com">
+  <div class="bg-yellow-950 border border-yellow-800 rounded-lg p-3 text-xs mb-3">
+    WAJIB di GCP > Credentials > Authorized JavaScript origins tambah:<br>
+    <code class="bg-black px-1">https://auto-event.github.io</code> dan <code class="bg-black px-1">https://YOUR_GITHUB.github.io</code><br>
+    Dan Enable YouTube Data API v3
   </div>
-  <p class="text-xs text-zinc-500 mb-4">Support: watch?v=, youtu.be/, /live/, /shorts/ • Auto-fill dari CSV</p>
-
-  <label class="text-sm text-zinc-400">GOOGLE OAUTH CLIENT ID</label>
-  <input id="clientIdInput" class="input mt-1 mb-4" placeholder="xxx.apps.googleusercontent.com">
-  <p class="text-xs text-zinc-500 mb-4">Tambahin https://auto-event.github.io di Authorized JavaScript origins di GCP</p>
-
   <button id="connectBtn" class="btn-red">⚡ Connect Google & Get LiveChat ID</button>
-
   <div id="chatIdBox" class="hidden mt-4 p-3 bg-green-950 border border-green-800 rounded-xl">
-    <p class="text-xs text-green-400">ACTIVE LIVE CHAT ID</p>
-    <p id="chatIdText" class="font-mono text-sm break-all mt-1"></p>
-    <p class="text-xs text-green-300 mt-2">● Ready to send - REAL MODE</p>
+    <p class="text-xs text-green-400">ACTIVE LIVE CHAT ID (REAL)</p>
+    <p id="chatIdText" class="font-mono text-xs break-all mt-1"></p>
+    <p class="text-xs text-green-300 mt-1">● Ready - gapi.client ready</p>
   </div>
 </div>
 
-<!-- 3. AUTO SENDER -->
+<!-- Auto Sender -->
 <div class="card p-5 mb-6">
-  <div class="flex justify-between items-center mb-3">
-    <h2 class="font-bold">💬 Auto Sender</h2>
-    <div class="flex gap-2">
-      <span id="msgCount" class="text-xs bg-zinc-800 px-2 py-1 rounded-full">0 messages</span>
-      <label class="text-xs bg-zinc-800 px-2 py-1 rounded-full cursor-pointer">Import CSV <input type="file" id="msgCsv" accept=".csv" class="hidden"></label>
-    </div>
-  </div>
-
+  <h2 class="font-bold mb-3">💬 Auto Sender</h2>
   <div id="msgList"></div>
-  <button id="addMsg" class="mt-3 w-full py-2 bg-zinc-800 rounded-lg">+ Tambah Pesan</button>
-
-  <div class="grid grid-cols-2 gap-4 mt-5">
-    <div>
-      <label class="text-sm">Interval (detik)</label>
-      <input id="intervalInput" type="number" min="5" value="60" class="input mt-1">
-      <p class="text-xs text-zinc-500">Minimal 5 detik biar gak spam</p>
-    </div>
-    <div class="flex flex-col gap-2 mt-6">
-      <label class="flex items-center gap-2 text-sm"><input type="checkbox" id="randomCheck" checked> Randomize pesan</label>
-      <label class="flex items-center gap-2 text-sm"><input type="checkbox" id="loopCheck" checked> Loop terus</label>
-    </div>
+  <button id="addMsg" class="mt-2 w-full py-2 bg-zinc-800 rounded-lg text-sm">+ Tambah Pesan</button>
+  <div class="grid grid-cols-2 gap-3 mt-4">
+    <div><label class="text-xs">Interval detik</label><input id="intervalInput" type="number" value="10" min="5" class="input mt-1"></div>
+    <div class="mt-6"><label class="text-xs"><input type="checkbox" id="randomCheck" checked> Random</label></div>
   </div>
-
-  <div class="grid grid-cols-2 gap-3 mt-5">
-    <button id="startBtn" class="btn-red">▶ START AutoChat</button>
+  <div class="grid grid-cols-2 gap-3 mt-4">
+    <button id="startBtn" class="btn-red">▶ START</button>
     <button id="stopBtn" class="w-full py-3 bg-zinc-800 rounded-xl font-bold" disabled>⏹ STOP</button>
   </div>
-
-  <div class="flex gap-2 mt-4">
-    <input id="manualInput" class="input" placeholder="Kirim manual...">
+  <div class="flex gap-2 mt-3">
+    <input id="manualInput" class="input" placeholder="Kirim manual test...">
     <button id="manualSend" class="px-4 bg-zinc-800 rounded-lg">Send</button>
   </div>
+  <p class="text-[11px] text-zinc-500 mt-2">Note: Video harus status LIVE sekarang, bukan Upcoming. Kalau Upcoming bakal Failed to fetch / liveChat tidak aktif.</p>
 </div>
 
-<!-- 4. LIVE LOGS -->
-<div class="card p-5 mb-6">
-  <div class="flex justify-between items-center mb-3">
-    <h2 class="font-bold">>_ Live Logs</h2>
-    <button id="clearLog" class="text-xs bg-zinc-800 px-3 py-1 rounded-full">Clear</button>
-  </div>
-  <div id="logs" class="log bg-black rounded-xl p-3 h-[300px] overflow-auto">
-    <div class="text-zinc-500">System ready. Upload CSV & konek dulu bos.</div>
-  </div>
-</div>
-
-<!-- 5. EXPORT -->
+<!-- Logs -->
 <div class="card p-5">
-  <h2 class="font-bold mb-3">⭐ Export & Deploy</h2>
-  <button id="exportPy" class="w-full py-3 bg-zinc-800 rounded-xl mb-2">⬇ Download Python Bot (24/7)</button>
-  <button id="exportJson" class="w-full py-3 bg-zinc-800 rounded-xl">⬇ Export Config JSON</button>
+  <div class="flex justify-between mb-2"><h2 class="font-bold">>_ Live Logs</h2><button id="clearLog" class="text-xs bg-zinc-800 px-2 py-1 rounded">Clear</button></div>
+  <div id="logs" class="log bg-black rounded-xl p-3 h-[350px] overflow-auto"></div>
 </div>
 
 <script>
-// ================== STATE ==================
-let csvData = [];
-let accessToken = null;
-let liveChatId = null;
-let autoInterval = null;
-let gapiLoaded = false;
-let gisLoaded = false;
-let tokenClient = null;
+let csvData=[], accessToken=null, liveChatId=null, autoInterval=null, tokenClient=null;
 
-// ================== UTIL ==================
 function log(msg, type='INFO'){
-  const el = document.getElementById('logs');
-  const time = new Date().toLocaleTimeString('id-ID');
-  const color = type==='ERROR'?'text-red-400':type==='SUCCESS'?'text-green-400':type==='SEND'?'text-blue-400':'text-zinc-300';
-  el.innerHTML += `<div class="mb-2"><span class="text-zinc-600">${time}</span> <span class="px-2 py-0.5 rounded bg-zinc-800 text-xs">${type}</span> <span class="${color}">${msg}</span></div>`;
-  el.scrollTop = el.scrollHeight;
+  const el=document.getElementById('logs');
+  const t=new Date().toLocaleTimeString('id-ID');
+  const c=type==='ERROR'?'text-red-400':type==='SUCCESS'?'text-green-400':type==='SEND'?'text-blue-400':'text-zinc-300';
+  el.innerHTML+=`<div class="mb-1"><span class="text-zinc-600">${t}</span> <span class="bg-zinc-800 px-1 rounded text-[10px]">${type}</span> <span class="${c}">${msg}</span></div>`;
+  el.scrollTop=el.scrollHeight;
 }
 function extractVideoId(url){
-  if(!url) return '';
-  url = url.trim();
+  url=url.trim();
   if(/^[a-zA-Z0-9_-]{11}$/.test(url)) return url;
-  try{
-    const u = new URL(url);
-    if(u.searchParams.get('v')) return u.searchParams.get('v');
-    const parts = u.pathname.split('/');
-    return parts.pop() || parts.pop();
-  }catch(e){
-    const m = url.match(/([a-zA-Z0-9_-]{11})/);
-    return m ? m[1] : url;
-  }
+  try{ const u=new URL(url); if(u.searchParams.get('v')) return u.searchParams.get('v'); return u.pathname.split('/').filter(Boolean).pop(); }catch(e){ const m=url.match(/([a-zA-Z0-9_-]{11})/); return m?m[1]:url; }
 }
 function parseCSV(text){
-  // handle BOM
-  text = text.replace(/^\uFEFF/, '');
-  const lines = text.split(/\r?\n/).filter(l=>l.trim()!=='');
-  if(lines.length<2) return [];
-  const headers = lines[0].split(',').map(h=>h.trim().replace(/"/g,''));
-  const rows = [];
+  text=text.replace(/^\uFEFF/,'');
+  const lines=text.split(/\r?\n/).filter(l=>l.trim()!=='');
+  const headers=lines[0].split(',').map(h=>h.trim().replace(/"/g,''));
+  const rows=[];
   for(let i=1;i<lines.length;i++){
-    // simple split, support quoted commas
-    const values = [];
-    let cur='', inQuote=false;
-    for(let c of lines[i]){
-      if(c=='"'){ inQuote=!inQuote; continue; }
-      if(c==',' && !inQuote){ values.push(cur); cur=''; }
-      else cur+=c;
-    }
-    values.push(cur);
-    const obj={};
-    headers.forEach((h, idx)=> obj[h]= (values[idx]||'').trim());
-    rows.push(obj);
+    let cur='',inQ=false,vals=[];
+    for(let ch of lines[i]){ if(ch=='"'){inQ=!inQ; continue;} if(ch==','&&!inQ){vals.push(cur); cur='';} else cur+=ch; }
+    vals.push(cur);
+    const o={}; headers.forEach((h,j)=>o[h]=(vals[j]||'').trim()); rows.push(o);
   }
   return rows;
 }
 
-// ================== CSV MANAGER ==================
-const dropZone = document.getElementById('dropZone');
-const csvFileInput = document.getElementById('csvFile');
-dropZone.onclick = ()=> csvFileInput.click();
-dropZone.ondragover = (e)=>{ e.preventDefault(); dropZone.classList.add('border-red-600'); };
-dropZone.ondragleave = ()=> dropZone.classList.remove('border-red-600');
-dropZone.ondrop = (e)=>{ e.preventDefault(); dropZone.classList.remove('border-red-600'); handleCsvFile(e.dataTransfer.files[0]); };
-csvFileInput.onchange = (e)=> handleCsvFile(e.target.files[0]);
-
-function handleCsvFile(file){
-  if(!file) return;
-  const reader = new FileReader();
-  reader.onload = (e)=>{
-    try{
-      const rows = parseCSV(e.target.result);
-      csvData = rows;
-      renderCsvTable();
-      document.getElementById('csvStats').classList.remove('hidden');
-      document.getElementById('csvStats').innerText = `Loaded ${rows.length} rows • ${file.name}`;
-      log(`CSV loaded: ${rows.length} live`, 'SUCCESS');
-    }catch(err){ log('Gagal parse CSV: '+err.message, 'ERROR'); }
-  };
-  reader.readAsText(file);
-}
-
-function renderCsvTable(filter=''){
-  const tbody = document.getElementById('csvTable');
-  tbody.innerHTML='';
-  const filtered = csvData.filter(r=> 
-    (r.title||'').toLowerCase().includes(filter.toLowerCase()) || 
-    (r.videoId||'').toLowerCase().includes(filter.toLowerCase())
-  );
-  filtered.forEach((row, idx)=>{
-    const tr = document.createElement('tr');
-    tr.className='border-t border-zinc-800 hover:bg-zinc-900';
-    tr.innerHTML=`
-      <td class="p-2"><input type="checkbox" class="rowCheck" data-idx="${idx}"></td>
-      <td class="p-2 font-mono text-xs"><span class="cursor-pointer" onclick="navigator.clipboard.writeText('${row.videoId||''}'); log('Copied ${row.videoId}','INFO')">${row.videoId||'-'}</span></td>
-      <td class="p-2 truncate max-w-[200px]" title="${row.title||''}">${row.title||''}</td>
-      <td class="p-2 text-xs text-zinc-400">${row.jadwal_lokal||''}</td>
-      <td class="p-2 flex gap-1">
-        <button onclick="useVideo('${row.videoId||''}')" class="px-2 py-1 bg-red-600 rounded text-xs">Pakai</button>
-        <a href="${row.link_watch||'https://youtube.com/watch?v='+(row.videoId||'')}" target="_blank" class="px-2 py-1 bg-zinc-800 rounded text-xs">Watch</a>
-      </td>
-    `;
-    tbody.appendChild(tr);
+// CSV
+document.getElementById('dropZone').onclick=()=>document.getElementById('csvFile').click();
+document.getElementById('csvFile').onchange=e=>handleFile(e.target.files[0]);
+document.getElementById('dropZone').ondragover=e=>{e.preventDefault();};
+document.getElementById('dropZone').ondrop=e=>{e.preventDefault(); handleFile(e.dataTransfer.files[0]);};
+function handleFile(f){ if(!f) return; const r=new FileReader(); r.onload=ev=>{ csvData=parseCSV(ev.target.result); renderTable(); document.getElementById('csvStats').classList.remove('hidden'); document.getElementById('csvStats').innerText=`Loaded ${csvData.length} rows`; log(`CSV loaded ${csvData.length}`,'SUCCESS'); }; r.readAsText(f); }
+function renderTable(filter=''){
+  const tb=document.getElementById('csvTable'); tb.innerHTML='';
+  csvData.filter(x=>(x.title||'').toLowerCase().includes(filter.toLowerCase())).forEach(row=>{
+    const tr=document.createElement('tr'); tr.className='border-t border-zinc-800';
+    tr.innerHTML=`<td class="p-2 font-mono">${row.videoId||''}</td><td class="p-2 truncate max-w-[180px]">${row.title||''}</td><td class="p-2"><button onclick="useVideo('${row.videoId}')" class="bg-red-600 px-2 py-1 rounded text-[11px]">Pakai</button></td>`;
+    tb.appendChild(tr);
   });
 }
+window.useVideo=(id)=>{ document.getElementById('videoInput').value=id; log('Pilih video '+id,'INFO'); };
+document.getElementById('csvSearch').oninput=e=>renderTable(e.target.value);
 
-function useVideo(videoId){
-  document.getElementById('videoInput').value = videoId;
-  log(`Dipilih video: ${videoId}`, 'INFO');
-  document.getElementById('videoInput').scrollIntoView({behavior:'smooth'});
-}
+// Messages
+function addRow(t=''){ const d=document.createElement('div'); d.className='flex gap-2 mb-2'; d.innerHTML=`<textarea class="input h-16 msgText flex-1">${t}</textarea><button class="bg-zinc-800 px-3 rounded del">🗑</button>`; d.querySelector('.del').onclick=()=>d.remove(); document.getElementById('msgList').appendChild(d); }
+document.getElementById('addMsg').onclick=()=>addRow();
+addRow('Halo guys! Welcome to live! 🔥');
+addRow('Jangan lupa like & subscribe ya!');
+function getMsgs(){ return Array.from(document.querySelectorAll('.msgText')).map(x=>x.value.trim()).filter(Boolean); }
 
-document.getElementById('csvSearch').oninput = (e)=> renderCsvTable(e.target.value);
-document.getElementById('clearCsv').onclick = ()=>{
-  csvData=[]; renderCsvTable(); document.getElementById('csvStats').classList.add('hidden'); log('CSV cleared','INFO');
-};
+// GAPI init
+gapi.load('client', async()=>{
+  await gapi.client.init({ discoveryDocs:["https://www.googleapis.com/discovery/v1/apis/youtube/v3/rest"] });
+  log('GAPI client ready','INFO');
+});
 
-// ================== MESSAGE LIST ==================
-function addMessageRow(text=''){
-  const list = document.getElementById('msgList');
-  const div = document.createElement('div');
-  div.className='flex gap-2 mb-2';
-  div.innerHTML=`
-    <textarea class="input flex-1 h-20 msgText" placeholder="Tulis pesan auto chat...">${text}</textarea>
-    <button class="px-3 bg-zinc-800 rounded-lg delBtn">🗑</button>
-  `;
-  div.querySelector('.delBtn').onclick = ()=>{ div.remove(); updateMsgCount(); };
-  div.querySelector('.msgText').oninput = ()=> updateMsgCount();
-  list.appendChild(div);
-  updateMsgCount();
-}
-function updateMsgCount(){
-  const count = document.querySelectorAll('.msgText').length;
-  document.getElementById('msgCount').innerText = `${count} messages`;
-}
-document.getElementById('addMsg').onclick = ()=> addMessageRow();
-addMessageRow('Halo guys! Selamat datang di live stream! Jangan lupa like & subscribe ya! 🙏');
-addMessageRow('Link ada di deskripsi ya kak! Cek pin comment juga 😊');
-
-// Import message CSV
-document.getElementById('msgCsv').onchange = (e)=>{
-  const file = e.target.files[0]; if(!file) return;
-  const reader = new FileReader();
-  reader.onload = (ev)=>{
-    const rows = parseCSV(ev.target.result);
-    // support header message/text/pesan
-    rows.forEach(r=>{
-      const msg = r.message || r.text || r.pesan || Object.values(r)[0];
-      if(msg) addMessageRow(msg);
-    });
-    log(`Imported ${rows.length} messages from CSV`, 'SUCCESS');
-  };
-  reader.readAsText(file);
-};
-
-// ================== GOOGLE AUTH ==================
-function initGapi(){
-  gapi.load('client', async ()=>{
-    await gapi.client.init({
-      discoveryDocs: ["https://www.googleapis.com/discovery/v1/apis/youtube/v3/rest"]
-    });
-    gapiLoaded = true;
-    log('GAPI loaded','INFO');
-  });
-}
-function initGis(){
-  // tokenClient akan di-init pas connect karena butuh client ID
-  gisLoaded = true;
-}
-window.onload = ()=>{
-  initGapi();
-  initGis();
-};
-
-document.getElementById('connectBtn').onclick = async ()=>{
-  const clientId = document.getElementById('clientIdInput').value.trim();
-  const videoUrl = document.getElementById('videoInput').value.trim();
-  if(!clientId.endsWith('.apps.googleusercontent.com')){
-    log('Client ID harus berakhiran .apps.googleusercontent.com','ERROR'); return;
-  }
-  if(!videoUrl){
-    log('Isi Video URL/ID dulu','ERROR'); return;
-  }
-  const videoId = extractVideoId(videoUrl);
-  log(`Mencoba konek ke video ${videoId}...`,'INFO');
-
-  // init tokenClient
+document.getElementById('connectBtn').onclick=()=>{
+  const clientId=document.getElementById('clientIdInput').value.trim();
+  const videoUrl=document.getElementById('videoInput').value.trim();
+  if(!clientId.endsWith('.apps.googleusercontent.com')){ log('Client ID salah','ERROR'); return; }
+  const vid=extractVideoId(videoUrl);
+  if(!vid){ log('Video ID kosong','ERROR'); return; }
+  log(`Connect ke ${vid}...`,'INFO');
   try{
-    tokenClient = google.accounts.oauth2.initTokenClient({
-      client_id: clientId,
-      scope: 'https://www.googleapis.com/auth/youtube.force-ssl https://www.googleapis.com/auth/youtube',
+    tokenClient=google.accounts.oauth2.initTokenClient({
+      client_id:clientId,
+      scope:'https://www.googleapis.com/auth/youtube.force-ssl https://www.googleapis.com/auth/youtube https://www.googleapis.com/auth/youtube.readonly',
       callback: async (resp)=>{
-        if(resp.error){ log('Auth gagal: '+resp.error,'ERROR'); return; }
-        accessToken = resp.access_token;
-        document.getElementById('statusBadge').innerText='🟢 CONNECTED - REAL API';
+        if(resp.error){ log('Auth error '+resp.error,'ERROR'); return; }
+        accessToken=resp.access_token;
+        gapi.client.setToken({access_token:accessToken});
+        document.getElementById('statusBadge').innerText='🟢 REAL CONNECTED';
         document.getElementById('statusBadge').className='px-3 py-1 rounded-full bg-green-900 text-green-200 text-sm';
-        log('Google OAuth connected - token dapat','SUCCESS');
-        // get liveChatId
-        await fetchLiveChatId(videoId);
+        log('OAuth OK - token set ke gapi.client','SUCCESS');
+        await getLiveChatId(vid);
       }
     });
     tokenClient.requestAccessToken({prompt:'consent'});
-  }catch(err){
-    log('Gagal init Google Auth: '+err.message+' - Pastikan origin https://auto-event.github.io sudah ditambah di GCP','ERROR');
-  }
+  }catch(e){ log('Gagal init GIS: '+e.message,'ERROR'); }
 };
 
-async function fetchLiveChatId(videoId){
-  if(!accessToken){ log('Belum ada access token','ERROR'); return; }
+async function getLiveChatId(videoId){
   try{
-    log('Loading liveChatId...','INFO');
-    const res = await fetch(`https://www.googleapis.com/youtube/v3/videos?part=liveStreamingDetails&id=${videoId}`, {
-      headers: { Authorization: `Bearer ${accessToken}` }
-    });
-    const data = await res.json();
-    if(!data.items || data.items.length===0){
-      log('Video tidak ditemukan / bukan live','ERROR'); return;
+    log('Fetch liveStreamingDetails via gapi...','INFO');
+    const res = await gapi.client.youtube.videos.list({ part:['liveStreamingDetails','snippet'], id:[videoId] });
+    const items = res.result.items;
+    if(!items || items.length===0){ log('Video tidak ditemukan','ERROR'); return; }
+    const det = items[0].liveStreamingDetails;
+    const snip = items[0].snippet;
+    log(`Judul: ${snip.title} | Status: ${det ? JSON.stringify(det).substring(0,200) : 'no details'}`,'INFO');
+    if(!det || !det.activeLiveChatId){
+      log('Video belum LIVE atau chat disable. Cek di YouTube Studio > video ini harus LIVE NOW, bukan Upcoming.','ERROR');
+      return;
     }
-    const details = data.items[0].liveStreamingDetails;
-    if(!details || !details.activeLiveChatId){
-      log('Video tidak sedang LIVE atau live chat tidak aktif','ERROR'); return;
-    }
-    liveChatId = details.activeLiveChatId;
+    liveChatId = det.activeLiveChatId;
     document.getElementById('chatIdBox').classList.remove('hidden');
     document.getElementById('chatIdText').innerText = liveChatId;
-    log(`LiveChatId dapat: ${liveChatId} - REAL`, 'SUCCESS');
-  }catch(err){
-    log('Error fetch liveChatId: '+err.message,'ERROR');
+    log(`LiveChatId REAL dapat: ${liveChatId}`,'SUCCESS');
+  }catch(e){
+    log(`Error getLiveChatId: ${e.result ? JSON.stringify(e.result.error) : e.message}`,'ERROR');
   }
 }
 
-// ================== SEND CHAT ==================
-async function sendChatMessage(text){
-  if(!accessToken || !liveChatId){
-    log('Belum konek REAL - Connect dulu bos','ERROR');
-    return false;
-  }
+async function sendViaGapi(text){
+  if(!liveChatId || !accessToken){ log('Belum konek','ERROR'); return false; }
   try{
-    const res = await fetch('https://www.googleapis.com/youtube/v3/liveChatMessages?part=snippet', {
-      method:'POST',
-      headers:{
-        'Authorization': `Bearer ${accessToken}`,
-        'Content-Type':'application/json'
-      },
-      body: JSON.stringify({
+    const res = await gapi.client.youtube.liveChatMessages.insert({
+      part:['snippet'],
+      resource:{
         snippet:{
           liveChatId: liveChatId,
           type:'textMessageEvent',
           textMessageDetails:{ messageText: text }
         }
-      })
+      }
     });
-    const data = await res.json();
-    if(data.error){
-      log(`Gagal kirim: ${data.error.message}`,'ERROR');
-      return false;
-    }
-    log(`✓ Delivered REAL: ${text.substring(0,50)}...`,'SUCCESS');
+    log(`✓ REAL DELIVERED: ${text.substring(0,60)}`,'SUCCESS');
     return true;
-  }catch(err){
-    log('Error send: '+err.message,'ERROR');
-    return false;
+  }catch(e){
+    const err = e.result ? JSON.stringify(e.result.error) : e.message;
+    log(`Error send via gapi: ${err}`,'ERROR');
+    // coba fallback fetch
+    try{
+      const r = await fetch('https://www.googleapis.com/youtube/v3/liveChatMessages?part=snippet', {
+        method:'POST',
+        headers:{ 'Authorization':'Bearer '+accessToken, 'Content-Type':'application/json' },
+        body: JSON.stringify({ snippet:{ liveChatId, type:'textMessageEvent', textMessageDetails:{ messageText:text } } })
+      });
+      const j = await r.json();
+      if(j.error){ log('Fallback fetch error: '+JSON.stringify(j.error),'ERROR'); return false; }
+      log(`✓ Fallback delivered: ${text.substring(0,50)}`,'SUCCESS');
+      return true;
+    }catch(fe){ log('Fallback failed to fetch: '+fe.message+' - Pastikan video LIVE NOW & API enabled','ERROR'); return false; }
   }
 }
 
-function getMessages(){
-  return Array.from(document.querySelectorAll('.msgText')).map(t=>t.value.trim()).filter(Boolean);
-}
-
-// START / STOP
-document.getElementById('startBtn').onclick = ()=>{
-  const msgs = getMessages();
-  if(msgs.length===0){ log('Isi pesan dulu','ERROR'); return; }
-  if(!liveChatId){ log('Connect Google dulu biar REAL','ERROR'); return; }
-  const interval = parseInt(document.getElementById('intervalInput').value)||60;
-  if(interval<5){ log('Interval minimal 5 detik','ERROR'); return; }
-  const randomize = document.getElementById('randomCheck').checked;
+// START STOP
+document.getElementById('startBtn').onclick=()=>{
+  const msgs=getMsgs(); if(msgs.length===0){ log('Pesan kosong','ERROR'); return; }
+  if(!liveChatId){ log('Connect dulu','ERROR'); return; }
+  const interval=parseInt(document.getElementById('intervalInput').value)||10;
   let idx=0;
-  log(`AutoChat START - interval ${interval}s - ${msgs.length} pesan - ${randomize?'random':'urut'}`,'SEND');
-  document.getElementById('startBtn').disabled=true;
-  document.getElementById('stopBtn').disabled=false;
-
-  autoInterval = setInterval(async ()=>{
-    let msg = randomize ? msgs[Math.floor(Math.random()*msgs.length)] : msgs[idx % msgs.length];
-    idx++;
-    await sendChatMessage(msg);
+  log(`START interval ${interval}s ${msgs.length} pesan`,'SEND');
+  document.getElementById('startBtn').disabled=true; document.getElementById('stopBtn').disabled=false;
+  autoInterval=setInterval(async()=>{
+    const msg = document.getElementById('randomCheck').checked ? msgs[Math.floor(Math.random()*msgs.length)] : msgs[idx++ % msgs.length];
+    await sendViaGapi(msg);
   }, interval*1000);
 };
-
-document.getElementById('stopBtn').onclick = ()=>{
-  clearInterval(autoInterval);
-  autoInterval=null;
-  document.getElementById('startBtn').disabled=false;
-  document.getElementById('stopBtn').disabled=true;
-  log('AutoChat STOPPED','INFO');
+document.getElementById('stopBtn').onclick=()=>{ clearInterval(autoInterval); document.getElementById('startBtn').disabled=false; document.getElementById('stopBtn').disabled=true; log('STOPPED','INFO'); };
+document.getElementById('manualSend').onclick=async()=>{
+  const t=document.getElementById('manualInput').value.trim(); if(!t) return;
+  await sendViaGapi(t); document.getElementById('manualInput').value='';
 };
-
-document.getElementById('manualSend').onclick = async ()=>{
-  const text = document.getElementById('manualInput').value.trim();
-  if(!text) return;
-  await sendChatMessage(text);
-  document.getElementById('manualInput').value='';
-};
-document.getElementById('clearLog').onclick = ()=> document.getElementById('logs').innerHTML='';
-
-// Export Python
-document.getElementById('exportPy').onclick = ()=>{
-  const msgs = getMessages();
-  const interval = document.getElementById('intervalInput').value;
-  const py = `import time, random, os
-from google_auth_oauthlib.flow import InstalledAppFlow
-from google.auth.transport.requests import Request
-from google.oauth2.credentials import Credentials
-from googleapiclient.discovery import build
-SCOPES=["https://www.googleapis.com/auth/youtube.force-ssl"]
-VIDEO_ID="${extractVideoId(document.getElementById('videoInput').value)||'ISI_VIDEO_ID'}"
-PESAN=${JSON.stringify(msgs, null, 2)}
-INTERVAL=${interval}
-# sisa kode sama kayak sebelumnya...
-print("Bot ready - edit VIDEO_ID & jalankan")
-`;
-  const blob = new Blob([py], {type:'text/x-python'});
-  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='auto_chat_real.py'; a.click();
-  log('Python bot downloaded','SUCCESS');
-};
-
-document.getElementById('exportJson').onclick = ()=>{
-  const config = {
-    video: document.getElementById('videoInput').value,
-    messages: getMessages(),
-    interval: document.getElementById('intervalInput').value,
-    csvData: csvData
-  };
-  const blob = new Blob([JSON.stringify(config, null, 2)], {type:'application/json'});
-  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='yt-autochat-config.json'; a.click();
-};
+document.getElementById('clearLog').onclick=()=>document.getElementById('logs').innerHTML='';
 </script>
 </body>
 </html>
