@@ -92,7 +92,7 @@
   <div id="dropZone" class="border-2 border-dashed border-zinc-700 rounded-xl p-4 sm:p-6 text-center cursor-pointer text-xs sm:text-sm">
     Klik / Drag CSV kesini
     <input type="file" id="csvFile" accept=".csv" class="hidden">
-    <div class="text-[10px] text-zinc-500 mt-1">kolom: videoId, title, channel, channel_id (hasil-upload dari Tool 1)</div>
+    <div class="text-[10px] text-zinc-500 mt-1">kolom: videoId, title, channel, channel_id (+ email jika ada) — hasil-upload dari Tool 1</div>
   </div>
   <div id="csvStats" class="hidden mt-3 text-xs text-zinc-400"></div>
   <input id="csvSearch" placeholder="Cari title..." class="input mt-3">
@@ -532,6 +532,7 @@ function saveState(){
       selectedVideos: [...selectedVideos]
     }));
     if (clientId) localStorage.setItem('ytac_clientId', clientId);
+    rememberChannelEmails();
   } catch(e){}
 }
 function loadState(){
@@ -620,7 +621,7 @@ function parseCSV(text){
   row.push(cur); if (row.some(c => c.trim())) rows.push(row);
   if (!rows.length) return [];
   const headers = rows[0].map(h => h.trim().toLowerCase().replace(/[\s_]/g, ''));
-  return rows.slice(1).map(r => { const o = {}; headers.forEach((h, j) => o[h] = (r[j] || '').trim()); return { videoId: o.videoid || o.id || '', title: o.title || o.judul || '', channel: o.channel || o.namachannel || '', channelId: o.channelid || '', jenis: (o.jenis || '').toLowerCase() }; }).filter(r => r.videoId && r.jenis !== 'video');
+  return rows.slice(1).map(r => { const o = {}; headers.forEach((h, j) => o[h] = (r[j] || '').trim()); return { videoId: o.videoid || o.id || '', title: o.title || o.judul || '', channel: o.channel || o.namachannel || '', channelId: o.channelid || '', email: o.email || o.emailakun || o.emailpembuat || '', jenis: (o.jenis || '').toLowerCase() }; }).filter(r => r.videoId && r.jenis !== 'video');
 }
 function handleFile(f){
   if (!f) return;
@@ -641,6 +642,42 @@ function handleFile(f){
   };
   r.readAsText(f);
 }
+/* ---------- EMAIL PEMBUAT EVENT ---------- */
+const LS_CH_EMAILS = 'ytac_channel_emails';
+function knownEmails() {
+  const byId = {}, byName = {};
+  const add = (chId, name, email) => {
+    if (!email) return;
+    if (chId && !byId[chId]) byId[chId] = email;
+    const n = normName(name);
+    if (n) { (byName[n] = byName[n] || new Set()).add(email); }
+  };
+  accounts.forEach(a => add(a.myChannelId, a.myChannelTitle, a.email));
+  const readLs = (key, mapFn) => { try { const arr = JSON.parse(localStorage.getItem(key) || 'null'); if (arr) mapFn(arr); } catch(e) {} };
+  readLs(LS_CH_EMAILS, o => Object.keys(o).forEach(id => add(id, '', o[id])));
+  // Tool 1 & Tool 2 (kalau dibuka dari domain yang sama, daftar akunnya terbaca di sini)
+  readLs('yt_csv_accounts_meta', arr => arr.forEach(a => add(a.channelId, a.channelTitle, a.email)));
+  readLs('yt_livemgr_accounts_v2', arr => arr.forEach(a => add(a.channelId, a.channelTitle, a.email)));
+  return { byId, byName };
+}
+function emailForGroup(g, known) {
+  const fromCsv = g.rows.map(r => r.email).find(Boolean);
+  if (fromCsv) return fromCsv;
+  if (g.channelId && known.byId[g.channelId]) return known.byId[g.channelId];
+  if (!g.channelId && g.name) {
+    const set = known.byName[normName(g.name)];
+    if (set && set.size === 1) return [...set][0];   // nama channel kembar -> tidak ditebak
+  }
+  return '';
+}
+function rememberChannelEmails() {
+  try {
+    const cur = JSON.parse(localStorage.getItem(LS_CH_EMAILS) || '{}');
+    accounts.forEach(a => { if (a.myChannelId && a.email && a.email !== 'Unknown') cur[a.myChannelId] = a.email; });
+    localStorage.setItem(LS_CH_EMAILS, JSON.stringify(cur));
+  } catch(e) {}
+}
+
 function creatorKey(r) { return r.channelId || normName(r.channel) || '(tanpa-info)'; }
 function creatorGroups() {
   const map = new Map();
@@ -661,6 +698,7 @@ function renderCreators() {
   card.style.display = 'block';
   box.innerHTML = '';
   let ready = 0;
+  const known = knownEmails();
   groups.forEach(g => {
     const sample = g.rows[0];
     const matches = accsForRow(sample);
@@ -685,7 +723,12 @@ function renderCreators() {
     else if (staleAcc) badge = '<span class="px-1.5 py-0.5 rounded bg-red-500/20 text-red-300 text-[9px] font-bold">🔑 token habis, login ulang</span>';
     else if (noInfo) badge = '<span class="px-1.5 py-0.5 rounded bg-zinc-700 text-zinc-300 text-[9px] font-bold">channel tidak ada di CSV</span>';
     else badge = '<span class="px-1.5 py-0.5 rounded bg-orange-500/20 text-orange-300 text-[9px] font-bold">✗ akun channel ini belum login</span>';
+    const em = emailForGroup(g, known);
+    const emailLine = em
+      ? `<div class="text-[11px] text-cyan-300 break-all select-all">✉ ${escapeHtml(em)}</div>`
+      : `<div class="text-[10px] text-zinc-500">✉ email belum diketahui (login akun channel ini sekali, nanti tersimpan)</div>`;
     info.innerHTML = `<div class="text-[12px] font-bold truncate text-white">${escapeHtml(g.name || '(nama channel tidak ada)')}</div>
+      ${emailLine}
       <div class="text-[9px] text-zinc-500 font-mono truncate">${escapeHtml(g.channelId || '-')}</div>
       <div class="text-[10px] text-zinc-400 mt-1">${g.rows.length} event • ${sel} dipilih &nbsp;${badge}</div>`;
     row.append(cb, info);
@@ -711,9 +754,11 @@ function syncCreatorUi() {
 }
 function renderTable(filter=''){
   const tb = $('csvTable'); tb.innerHTML = '';
+  let knownCache = null;
   const q = filter.toLowerCase();
   csvData.filter(x => creatorSel[creatorKey(x)] !== false && (x.title.toLowerCase().includes(q) || x.videoId.toLowerCase().includes(q) || (x.channel || '').toLowerCase().includes(q))).slice(0, 500).forEach(row => {
     const can = rowCommentable(row);
+    if (!knownCache) knownCache = knownEmails();
     const tr = document.createElement('tr'); tr.className = 'border-t border-zinc-800 hover:bg-zinc-900' + (can ? '' : ' opacity-50');
     const tdCb = document.createElement('td'); tdCb.className = 'p-2 w-8';
     const cb = document.createElement('input'); cb.type = 'checkbox';
@@ -730,7 +775,8 @@ function renderTable(filter=''){
     td2.textContent = row.title;
     if (row.channel) {
       const sub = document.createElement('div'); sub.className = 'text-[10px] text-yellow-400 mt-0.5';
-      sub.textContent = '👤 ' + row.channel + (can ? '' : ' (akun belum login)');
+      const rowEm = row.email || (row.channelId && knownCache.byId[row.channelId]) || '';
+      sub.textContent = '👤 ' + row.channel + (rowEm ? ' • ' + rowEm : '') + (can ? '' : ' (akun belum login)');
       td2.appendChild(sub);
     }
     const td3 = document.createElement('td'); td3.className = 'p-2 w-14';
