@@ -49,7 +49,7 @@
     <div class="w-10 h-10 sm:w-12 sm:h-12 bg-red-600 rounded-xl sm:rounded-2xl flex items-center justify-center text-lg sm:text-xl flex-shrink-0">▶</div>
     <div class="min-w-0">
       <h1 class="text-base sm:text-xl font-bold truncate">YT AutoChat Pro v2</h1>
-      <p class="text-[10px] sm:text-xs text-zinc-400 truncate">Batch Mode • Multi Sender</p>
+      <p class="text-[10px] sm:text-xs text-zinc-400 truncate">Batch Mode • Komentar oleh Pembuat Event</p>
     </div>
   </div>
   <div class="flex flex-col items-end gap-1 flex-shrink-0">
@@ -92,7 +92,7 @@
   <div id="dropZone" class="border-2 border-dashed border-zinc-700 rounded-xl p-4 sm:p-6 text-center cursor-pointer text-xs sm:text-sm">
     Klik / Drag CSV kesini
     <input type="file" id="csvFile" accept=".csv" class="hidden">
-    <div class="text-[10px] text-zinc-500 mt-1">kolom: videoId, title</div>
+    <div class="text-[10px] text-zinc-500 mt-1">kolom: videoId, title, channel, channel_id (hasil-upload dari Tool 1)</div>
   </div>
   <div id="csvStats" class="hidden mt-3 text-xs text-zinc-400"></div>
   <input id="csvSearch" placeholder="Cari title..." class="input mt-3">
@@ -106,6 +106,16 @@
   </div>
 </div>
 
+<!-- PEMBUAT EVENT -->
+<div class="card p-3 sm:p-5 mb-4 sm:mb-6" id="creatorCard" style="display:none;border:1px solid #854d0e;">
+  <div class="flex items-center justify-between mb-2 gap-2 flex-wrap">
+    <h2 class="font-bold text-sm sm:text-base text-yellow-300">👤 Pembuat Event</h2>
+    <span id="creatorSummary" class="text-[10px] px-2 py-1 rounded bg-zinc-800 text-zinc-300"></span>
+  </div>
+  <div class="text-[11px] text-zinc-400 mb-3">Komentar ke sebuah event <b class="text-yellow-300">hanya dikirim oleh akun pemilik channel pembuat event itu</b>. Channel tanpa akun login tidak bisa dipilih.</div>
+  <div id="creatorList" class="space-y-2"></div>
+</div>
+
 <!-- BATCH MODE -->
 <div class="card p-3 sm:p-5 mb-4 sm:mb-6" style="border:2px solid #166534;">
   <div class="flex items-center justify-between mb-3 gap-2 flex-wrap">
@@ -114,6 +124,7 @@
   </div>
 
   <div class="info-box">
+    <b>🔒 Aturan:</b> tiap event hanya dikomentari oleh <b>akun pembuat event itu sendiri</b> (dicocokkan lewat channel). Akun lain tidak dipakai.<br><br>
     <b>🎯 Cara Kerja:</b> Setiap event yang dicentang akan dikirim <b>N komentar berturut-turut</b>, lalu lanjut ke event berikutnya, sampai semua event selesai → <b>bot berhenti otomatis</b>.<br><br>
     <b>Contoh:</b> 5 event dicentang, "Komentar per event" = 2 → total 10 komentar terkirim (2 ke tiap event) → <b>STOP</b>.<br><br>
     Pesan diambil dari daftar di bawah secara <b>rotasi global</b> (event 1 dapat pesan A,B; event 2 dapat pesan C,D; dst).
@@ -226,6 +237,10 @@
 const $ = id => document.getElementById(id);
 let accounts = [];
 let liveChatId = null;
+let liveChatChannelId = null;
+let creatorSel = {};
+let lastAccSig = "";
+let lastFetchAcc = null;
 let queue = [], qIdx = 0;
 let running = false, timer = null, seqIdx = 0, lastMsg = null, sentCount = 0, sending = false;
 let senderIdx = 0;
@@ -330,20 +345,29 @@ $('reloadLibsBtn').onclick = () => {
 /* ---------- Account Logic ---------- */
 function isValid(a) { return a && Date.now() < a.expiresAt - 30000; }
 function getSenders() { return accounts.filter(a => a.isSender && isValid(a)); }
-function getOwner() { return accounts.find(a => a.isOwner && isValid(a)); }
-function getNextSender() {
-  const senders = getSenders();
-  if (!senders.length) return null;
-  const s = senders[senderIdx % senders.length];
-  senderIdx++;
-  return s;
+function normName(x) { return String(x || '').toLowerCase().replace(/\s+/g, ' ').trim(); }
+// akun yang BOLEH komen untuk channel tertentu (pembuat event): token valid + dicentang SEND + channel cocok
+function accForChannel(chId) {
+  if (!chId) return null;
+  return accounts.find(a => a.isSender && isValid(a) && a.myChannelId === chId) || null;
 }
+// akun (valid atau tidak) yang cocok dengan baris CSV, untuk menampilkan status
+function accsForRow(row) {
+  if (row.channelId) return accounts.filter(a => a.myChannelId === row.channelId);
+  if (row.channel) return accounts.filter(a => a.myChannelTitle && normName(a.myChannelTitle) === normName(row.channel));
+  return [];
+}
+function rowAccount(row) { return accsForRow(row).find(a => a.isSender && isValid(a)) || null; }
+function rowHasInfo(row) { return !!(row.channelId || row.channel); }
+// baris tanpa info channel (CSV lama) dianggap boleh dulu, diperiksa lagi saat kirim
+function rowCommentable(row) { return rowHasInfo(row) ? !!rowAccount(row) : true; }
 
 function renderAccounts() {
   const el = $('accountsList'); el.innerHTML = '';
   if (!accounts.length) {
     el.innerHTML = '<div class="text-zinc-500 text-center py-6 text-xs">Belum ada akun. Klik "+ Akun".</div>';
     setBadge('⚪ Belum ada akun', 'bg-zinc-800');
+    syncCreatorUi();
     refreshButtons();
     return;
   }
@@ -352,21 +376,8 @@ function renderAccounts() {
     const row = document.createElement('div');
     row.className = 'acc-row' + (expired ? ' stale' : '');
 
-    const ownerWrap = document.createElement('label');
-    ownerWrap.className = 'flex flex-col items-center cursor-pointer'; ownerWrap.title = 'Jadikan Owner';
-    const ownerRadio = document.createElement('input');
-    ownerRadio.type = 'radio'; ownerRadio.name = 'owner-radio'; ownerRadio.checked = acc.isOwner;
-    ownerRadio.onchange = () => {
-      accounts.forEach(a => a.isOwner = false);
-      acc.isOwner = true;
-      renderAccounts(); saveState();
-      log(`Owner: ${acc.email}`, 'SUCCESS');
-    };
-    const ownerLbl = document.createElement('span'); ownerLbl.className = 'text-[8px] text-yellow-400 font-bold'; ownerLbl.textContent = 'OWNER';
-    ownerWrap.append(ownerRadio, ownerLbl);
-
     const senderWrap = document.createElement('label');
-    senderWrap.className = 'flex flex-col items-center cursor-pointer'; senderWrap.title = 'Jadikan Sender';
+    senderWrap.className = 'flex flex-col items-center cursor-pointer'; senderWrap.title = 'Boleh komen untuk event channel-nya';
     const senderCheck = document.createElement('input');
     senderCheck.type = 'checkbox'; senderCheck.checked = acc.isSender;
     senderCheck.onchange = () => { acc.isSender = senderCheck.checked; saveState(); renderAccounts(); };
@@ -379,7 +390,7 @@ function renderAccounts() {
     img.onerror = () => { img.style.background = '#555'; img.removeAttribute('src'); };
 
     const info = document.createElement('div'); info.className = 'flex-1 min-w-0';
-    const ownerBadge = acc.isOwner ? '<span class="ml-1 px-1 py-0.5 rounded bg-yellow-500/20 text-yellow-300 text-[8px] font-bold">OWNER</span>' : '';
+    const ownerBadge = acc.myChannelId ? '<span class="ml-1 px-1 py-0.5 rounded bg-yellow-500/20 text-yellow-300 text-[8px] font-bold" title="Channel milik akun ini">CH: ' + escapeHtml((acc.myChannelTitle || acc.myChannelId).slice(0, 22)) + '</span>' : '<span class="ml-1 px-1 py-0.5 rounded bg-red-500/20 text-red-300 text-[8px] font-bold">NO CHANNEL</span>';
     const senderBadge = acc.isSender ? '<span class="ml-1 px-1 py-0.5 rounded bg-green-500/20 text-green-300 text-[8px] font-bold">SENDER</span>' : '';
     const expBadge = expired ? '<span class="ml-1 px-1 py-0.5 rounded bg-red-500/20 text-red-300 text-[8px] font-bold">TOKEN EXPIRED</span>' : '';
     const isPageAcc = acc.email && acc.email.includes('@pages.plusgoogle.com');
@@ -425,23 +436,22 @@ function renderAccounts() {
       log(`Akun ${acc.email} dihapus`, 'INFO');
     };
 
-    row.append(ownerWrap, senderWrap, img, info);
+    row.append(senderWrap, img, info);
     if (refreshBtn) row.appendChild(refreshBtn);
     row.appendChild(del);
     el.appendChild(row);
   });
 
   const senders = getSenders();
-  const owner = getOwner();
   const stale = accounts.filter(a => !isValid(a)).length;
   if (senders.length) {
-    const ownerPart = owner ? ` • O:${owner.email.split('@')[0]}` : ' • ⚠NoOwner';
-    setBadge(`🟢 ${senders.length} Sender${ownerPart}`, owner ? 'bg-green-900 text-green-200' : 'bg-yellow-900 text-yellow-200');
+    setBadge(`🟢 ${senders.length} akun siap komen`, 'bg-green-900 text-green-200');
   } else if (stale > 0) {
     setBadge(`🔑 ${stale} token expired`, 'bg-red-900 text-red-200');
   } else {
     setBadge('⚪ Belum ada Sender', 'bg-zinc-800');
   }
+  syncCreatorUi();
   refreshButtons();
 }
 
@@ -472,8 +482,10 @@ async function reLoginAccount(acc){
         acc.picture = ui.result.picture;
       } catch(e){}
       try {
-        const me = await gapi.client.youtube.channels.list({ part: 'id', mine: true });
-        acc.myChannelId = me.result.items && me.result.items[0] ? me.result.items[0].id : null;
+        const me = await gapi.client.youtube.channels.list({ part: 'id,snippet', mine: true });
+        const ch0 = me.result.items && me.result.items[0];
+        acc.myChannelId = ch0 ? ch0.id : null;
+        acc.myChannelTitle = ch0 && ch0.snippet ? ch0.snippet.title : null;
       } catch(e){}
 
       renderAccounts(); saveState();
@@ -516,7 +528,7 @@ function saveState(){
       gapBetweenEvents: $('gapBetweenEvents').value,
       shuffleMessages: $('shuffleMessages').checked,
       verifyCheck: $('verifyCheck').checked,
-      accounts, liveChatId, queue, rotate: $('rotateCheck').checked,
+      accounts, liveChatId, liveChatChannelId, queue, rotate: $('rotateCheck').checked,
       selectedVideos: [...selectedVideos]
     }));
     if (clientId) localStorage.setItem('ytac_clientId', clientId);
@@ -556,13 +568,12 @@ function restoreState(){
     accounts = s.accounts.map(a => ({
       ...a,
       isSender: a.isSender !== false,
-      isOwner: !!a.isOwner,
       sentCount: a.sentCount || 0,
       verifyOk: a.verifyOk || 0,
       verifyMiss: a.verifyMiss || 0,
       consecutiveMiss: a.consecutiveMiss || 0
     }));
-    if (s.liveChatId) { liveChatId = s.liveChatId; $('chatIdText').textContent = liveChatId; $('chatIdBox').classList.remove('hidden'); }
+    if (s.liveChatId) { liveChatId = s.liveChatId; liveChatChannelId = s.liveChatChannelId || null; $('chatIdText').textContent = liveChatId; $('chatIdBox').classList.remove('hidden'); }
     if (s.queue && s.queue.length) { queue = s.queue; renderQueue(); }
     const stale = accounts.filter(a => !isValid(a)).length;
     if (stale > 0) {
@@ -609,7 +620,7 @@ function parseCSV(text){
   row.push(cur); if (row.some(c => c.trim())) rows.push(row);
   if (!rows.length) return [];
   const headers = rows[0].map(h => h.trim().toLowerCase().replace(/[\s_]/g, ''));
-  return rows.slice(1).map(r => { const o = {}; headers.forEach((h, j) => o[h] = (r[j] || '').trim()); return { videoId: o.videoid || o.id || '', title: o.title || o.judul || '', channelId: o.channelid || '' }; });
+  return rows.slice(1).map(r => { const o = {}; headers.forEach((h, j) => o[h] = (r[j] || '').trim()); return { videoId: o.videoid || o.id || '', title: o.title || o.judul || '', channel: o.channel || o.namachannel || '', channelId: o.channelid || '', jenis: (o.jenis || '').toLowerCase() }; }).filter(r => r.videoId && r.jenis !== 'video');
 }
 function handleFile(f){
   if (!f) return;
@@ -617,29 +628,111 @@ function handleFile(f){
   r.onload = ev => {
     csvData = parseCSV(ev.target.result);
     selectedVideos = new Set();
+    creatorSel = {};
+    creatorGroups().forEach(g => creatorSel[g.key] = true);
+    lastAccSig = '';
+    renderCreators();
     renderTable($('csvSearch').value);
     updateStats();
-    $('csvStats').classList.remove('hidden'); $('csvStats').textContent = `Loaded ${csvData.length} rows`;
-    log(`CSV loaded ${csvData.length} baris`, 'SUCCESS');
+    const nCh = creatorGroups().length;
+    $('csvStats').classList.remove('hidden'); $('csvStats').textContent = `Loaded ${csvData.length} event dari ${nCh} pembuat`;
+    log(`CSV loaded ${csvData.length} event live dari ${nCh} pembuat event`, 'SUCCESS');
+    if (csvData.length && !csvData.some(rowHasInfo)) log('CSV tidak punya kolom channel / channel_id. Pembuat event akan dicek saat kirim (lewat data video).', 'INFO');
   };
   r.readAsText(f);
+}
+function creatorKey(r) { return r.channelId || normName(r.channel) || '(tanpa-info)'; }
+function creatorGroups() {
+  const map = new Map();
+  csvData.forEach(r => {
+    const k = creatorKey(r);
+    if (!map.has(k)) map.set(k, { key: k, name: r.channel || '', channelId: r.channelId || '', rows: [] });
+    const g = map.get(k);
+    if (!g.name && r.channel) g.name = r.channel;
+    if (!g.channelId && r.channelId) g.channelId = r.channelId;
+    g.rows.push(r);
+  });
+  return [...map.values()];
+}
+function renderCreators() {
+  const card = $('creatorCard'), box = $('creatorList');
+  const groups = creatorGroups();
+  if (!groups.length) { card.style.display = 'none'; box.innerHTML = ''; return; }
+  card.style.display = 'block';
+  box.innerHTML = '';
+  let ready = 0;
+  groups.forEach(g => {
+    const sample = g.rows[0];
+    const matches = accsForRow(sample);
+    const okAcc = matches.find(a => a.isSender && isValid(a));
+    const staleAcc = !okAcc && matches.find(a => !isValid(a));
+    const noInfo = !rowHasInfo(sample);
+    if (okAcc || noInfo) ready++;
+    const sel = [...selectedVideos].filter(id => g.rows.some(r => r.videoId === id)).length;
+
+    const row = document.createElement('div');
+    row.className = 'acc-row'; row.style.flexWrap = 'wrap';
+    if (!okAcc && !noInfo) row.style.borderColor = staleAcc ? '#7f1d1d' : '#854d0e';
+
+    const cb = document.createElement('input'); cb.type = 'checkbox';
+    cb.checked = creatorSel[g.key] !== false;
+    cb.style.cssText = 'width:16px;height:16px;accent-color:#16a34a;flex-shrink:0;';
+    cb.onchange = () => { creatorSel[g.key] = cb.checked; renderTable($('csvSearch').value); };
+
+    const info = document.createElement('div'); info.className = 'flex-1 min-w-0';
+    let badge;
+    if (okAcc) badge = `<span class="px-1.5 py-0.5 rounded bg-green-500/20 text-green-300 text-[9px] font-bold">✓ siap komen (${escapeHtml(okAcc.email)})</span>`;
+    else if (staleAcc) badge = '<span class="px-1.5 py-0.5 rounded bg-red-500/20 text-red-300 text-[9px] font-bold">🔑 token habis, login ulang</span>';
+    else if (noInfo) badge = '<span class="px-1.5 py-0.5 rounded bg-zinc-700 text-zinc-300 text-[9px] font-bold">channel tidak ada di CSV</span>';
+    else badge = '<span class="px-1.5 py-0.5 rounded bg-orange-500/20 text-orange-300 text-[9px] font-bold">✗ akun channel ini belum login</span>';
+    info.innerHTML = `<div class="text-[12px] font-bold truncate text-white">${escapeHtml(g.name || '(nama channel tidak ada)')}</div>
+      <div class="text-[9px] text-zinc-500 font-mono truncate">${escapeHtml(g.channelId || '-')}</div>
+      <div class="text-[10px] text-zinc-400 mt-1">${g.rows.length} event • ${sel} dipilih &nbsp;${badge}</div>`;
+    row.append(cb, info);
+    if (staleAcc) {
+      const rb = document.createElement('button'); rb.className = 'refresh-btn'; rb.textContent = '🔑';
+      rb.title = 'Login ulang'; rb.onclick = () => reLoginAccount(staleAcc);
+      row.appendChild(rb);
+    }
+    box.appendChild(row);
+  });
+  $('creatorSummary').textContent = `${groups.length} pembuat • ${ready} siap komen`;
+}
+function syncCreatorUi() {
+  const sig = accounts.map(a => a.id + ':' + (isValid(a) ? 1 : 0) + ':' + (a.isSender ? 1 : 0) + ':' + (a.myChannelId || '')).join('|');
+  if (sig === lastAccSig) return;
+  lastAccSig = sig;
+  if (typeof csvData === 'undefined' || !csvData.length) return;
+  // buang pilihan event yang akunnya tidak tersedia lagi
+  const byId = new Map(csvData.map(r => [r.videoId, r]));
+  [...selectedVideos].forEach(id => { const r = byId.get(id); if (r && !rowCommentable(r)) selectedVideos.delete(id); });
+  renderCreators();
+  renderTable($('csvSearch').value);
 }
 function renderTable(filter=''){
   const tb = $('csvTable'); tb.innerHTML = '';
   const q = filter.toLowerCase();
-  csvData.filter(x => x.title.toLowerCase().includes(q) || x.videoId.toLowerCase().includes(q)).slice(0, 500).forEach(row => {
-    const tr = document.createElement('tr'); tr.className = 'border-t border-zinc-800 hover:bg-zinc-900';
+  csvData.filter(x => creatorSel[creatorKey(x)] !== false && (x.title.toLowerCase().includes(q) || x.videoId.toLowerCase().includes(q) || (x.channel || '').toLowerCase().includes(q))).slice(0, 500).forEach(row => {
+    const can = rowCommentable(row);
+    const tr = document.createElement('tr'); tr.className = 'border-t border-zinc-800 hover:bg-zinc-900' + (can ? '' : ' opacity-50');
     const tdCb = document.createElement('td'); tdCb.className = 'p-2 w-8';
     const cb = document.createElement('input'); cb.type = 'checkbox';
-    cb.checked = selectedVideos.has(row.videoId);
+    cb.checked = can && selectedVideos.has(row.videoId);
+    cb.disabled = !can;
     cb.style.cssText = 'width:16px;height:16px;cursor:pointer;accent-color:#16a34a;';
     cb.onchange = () => {
       if (cb.checked) selectedVideos.add(row.videoId); else selectedVideos.delete(row.videoId);
-      updateStats(); saveState();
+      updateStats(); renderCreators(); saveState();
     };
     tdCb.appendChild(cb);
     const td1 = document.createElement('td'); td1.className = 'p-2 font-mono text-[10px] break-all'; td1.textContent = row.videoId;
-    const td2 = document.createElement('td'); td2.className = 'p-2 break-words'; td2.textContent = row.title;
+    const td2 = document.createElement('td'); td2.className = 'p-2 break-words';
+    td2.textContent = row.title;
+    if (row.channel) {
+      const sub = document.createElement('div'); sub.className = 'text-[10px] text-yellow-400 mt-0.5';
+      sub.textContent = '👤 ' + row.channel + (can ? '' : ' (akun belum login)');
+      td2.appendChild(sub);
+    }
     const td3 = document.createElement('td'); td3.className = 'p-2 w-14';
     const btn = document.createElement('button'); btn.className = 'bg-zinc-700 hover:bg-zinc-600 px-2 py-1 rounded text-[10px]'; btn.textContent = 'Set';
     btn.onclick = () => { $('videoInput').value = row.videoId; log('Target: ' + row.videoId); };
@@ -662,8 +755,8 @@ $('csvFile').onchange = e => handleFile(e.target.files[0]);
 $('dropZone').ondragover = e => e.preventDefault();
 $('dropZone').ondrop = e => { e.preventDefault(); handleFile(e.dataTransfer.files[0]); };
 $('csvSearch').oninput = e => renderTable(e.target.value);
-$('selectAllBtn').onclick = () => { csvData.forEach(r => { if (r.videoId) selectedVideos.add(r.videoId); }); renderTable($('csvSearch').value); saveState(); };
-$('deselectAllBtn').onclick = () => { selectedVideos = new Set(); renderTable($('csvSearch').value); saveState(); };
+$('selectAllBtn').onclick = () => { let skip = 0; csvData.forEach(r => { if (creatorSel[creatorKey(r)] === false) return; if (rowCommentable(r)) selectedVideos.add(r.videoId); else skip++; }); if (skip) log(`${skip} event dilewati: akun pembuat event belum login`, 'INFO'); renderTable($('csvSearch').value); renderCreators(); saveState(); };
+$('deselectAllBtn').onclick = () => { selectedVideos = new Set(); renderTable($('csvSearch').value); renderCreators(); saveState(); };
 $('commentsPerEvent').addEventListener('input', updateStats);
 
 /* ---------- Pesan Loop ---------- */
@@ -762,26 +855,26 @@ $('addAccountBtn').onclick = async () => {
         email = ui.result.email; name = ui.result.name; picture = ui.result.picture;
       } catch(e) { log('Gagal ambil info user (lanjut)', 'INFO'); }
 
-      let myChannelId = null;
+      let myChannelId = null, myChannelTitle = null;
       try {
-        const me = await gapi.client.youtube.channels.list({ part: 'id', mine: true });
-        myChannelId = me.result.items && me.result.items[0] ? me.result.items[0].id : null;
+        const me = await gapi.client.youtube.channels.list({ part: 'id,snippet', mine: true });
+        const ch0 = me.result.items && me.result.items[0];
+        myChannelId = ch0 ? ch0.id : null;
+        myChannelTitle = ch0 && ch0.snippet ? ch0.snippet.title : null;
       } catch(e) {}
 
       const accountId = email !== 'Unknown' ? email : (myChannelId || Date.now().toString());
       const existing = accounts.find(a => a.id === accountId);
       if (existing) {
-        Object.assign(existing, { accessToken, expiresAt, name, picture, myChannelId });
+        Object.assign(existing, { accessToken, expiresAt, name, picture, myChannelId, myChannelTitle });
         log(`Akun ${email} token diperbarui`, 'SUCCESS');
       } else {
-        const isFirst = accounts.length === 0;
-        const hasOwner = accounts.some(a => a.isOwner);
         accounts.push({
-          id: accountId, email, name, picture, accessToken, expiresAt, myChannelId,
-          isSender: true, isOwner: isFirst || !hasOwner, sentCount: 0,
+          id: accountId, email, name, picture, accessToken, expiresAt, myChannelId, myChannelTitle,
+          isSender: true, sentCount: 0,
           verifyOk: 0, verifyMiss: 0, consecutiveMiss: 0
         });
-        log(`Akun ${email}${isFirst || !hasOwner ? ' (Owner+Sender)' : ' (Sender)'}`, 'SUCCESS');
+        log(`Akun ${email} ditambahkan • channel: ${myChannelTitle || 'TIDAK ADA CHANNEL'}`, myChannelId ? 'SUCCESS' : 'ERROR');
       }
       renderAccounts(); saveState();
     },
@@ -846,10 +939,16 @@ async function verifySentMessage(sender, text, chatId, sentAtMs){
 }
 
 /* ---------- Kirim ---------- */
-async function sendMessage(text, chatId = liveChatId){
+async function sendMessage(text, chatId = liveChatId, channelId = liveChatChannelId){
   if (!chatId) return { ok:false, fatal:true };
-  const sender = getNextSender();
-  if (!sender) { log('Tidak ada Sender valid', 'ERROR'); return { ok:false, fatal:true }; }
+  if (!getSenders().length) { log('Tidak ada akun valid untuk komen', 'ERROR'); return { ok:false, fatal:true }; }
+  // HANYA akun pembuat event (pemilik channel event) yang boleh komen
+  const sender = accForChannel(channelId);
+  if (!sender) {
+    const stale = accounts.find(a => channelId && a.myChannelId === channelId);
+    log(stale ? `✗ Akun pembuat event (${stale.email}) token habis / SEND mati. Login ulang dulu.` : `✗ Tidak ada akun pembuat event (channel ${channelId || 'tidak diketahui'}). Hanya pembuat event yang boleh komen.`, 'ERROR');
+    return { ok:false, fatal:false, noSender:true };
+  }
   text = text.slice(0, 200);
   const sentAt = Date.now();
 
@@ -892,11 +991,7 @@ async function sendMessage(text, chatId = liveChatId){
       sender.expiresAt = 0;
       log(`🔑 Token ${sender.email} kadaluwarsa. Akun ditandai perlu login ulang.`, 'ERROR');
       renderAccounts(); saveState();
-      if (getSenders().length > 0) {
-        log(`   Sender lain akan lanjut.`, 'INFO');
-        return { ok:false, fatal:false };
-      }
-      return { ok:false, fatal:true };
+      return { ok:false, fatal: getSenders().length === 0, noSender:true };
     }
 
     const perChat = ['liveChatEnded','liveChatDisabled','liveChatNotFound','forbidden'];
@@ -904,10 +999,50 @@ async function sendMessage(text, chatId = liveChatId){
       sender.isSender = false;
       log(`⚠ ${sender.email} kuota habis, dinonaktifkan.`, 'ERROR');
       renderAccounts(); saveState();
-      if (getSenders().length > 0) return { ok:false, fatal:false };
+      return { ok:false, fatal: getSenders().length === 0, noSender:true };
     }
     return { ok:false, fatal: getSenders().length === 0, dropChat: perChat.includes(info.reason) };
   }
+}
+
+/* ---------- AMBIL TARGET (hanya event milik akun yang login) ---------- */
+async function fetchTargets(ids){
+  const rowById = new Map(csvData.map(r => [r.videoId, r]));
+  const fallback = getSenders()[0] || accounts.find(a => isValid(a));
+  const groups = new Map();
+  ids.forEach(id => {
+    const row = rowById.get(id);
+    let acc = row ? rowAccount(row) : null;
+    if (!acc && row && rowHasInfo(row)) {
+      log(`🚫 SKIP "${(row.title || id).slice(0, 40)}": akun pembuat event (${row.channel || row.channelId}) belum login`, 'ERROR');
+      return;
+    }
+    acc = acc || fallback;
+    if (!acc) return;
+    if (!groups.has(acc.id)) groups.set(acc.id, { acc, ids: [] });
+    groups.get(acc.id).ids.push(id);
+  });
+  const out = [];
+  for (const g of groups.values()) {
+    lastFetchAcc = g.acc;
+    gapi.client.setToken({ access_token: g.acc.accessToken });
+    for (let i = 0; i < g.ids.length; i += 50) {
+      const res = await gapi.client.youtube.videos.list({ part: 'liveStreamingDetails,snippet', id: g.ids.slice(i, i + 50).join(',') });
+      for (const it of res.result.items || []) {
+        const d = it.liveStreamingDetails || {};
+        const t = (it.snippet.title || '').slice(0, 40);
+        const sender = accForChannel(it.snippet.channelId);
+        if (!sender) { log(`🚫 SKIP "${t}": bukan event milik akun yang login (pembuat: ${it.snippet.channelTitle || it.snippet.channelId})`, 'ERROR'); continue; }
+        if (!d.activeLiveChatId) { log(`⚠ Skip "${t}": chat tidak aktif`, 'ERROR'); continue; }
+        if (d.actualEndTime) { log(`🚫 SKIP "${t}" (sudah berakhir)`, 'ERROR'); continue; }
+        const status = d.actualStartTime ? 'LIVE' : (d.scheduledStartTime ? `PRE-LIVE (jadwal ${new Date(d.scheduledStartTime).toLocaleString('id-ID')})` : 'LIVE');
+        log(`✓ "${t}" — ${status} • komen oleh ${sender.myChannelTitle || sender.email}`, 'SUCCESS');
+        out.push({ videoId: it.id, title: it.snippet.title, chatId: d.activeLiveChatId, channelId: it.snippet.channelId });
+      }
+    }
+  }
+  out.sort((a, b) => ids.indexOf(a.videoId) - ids.indexOf(b.videoId));
+  return out;
 }
 
 /* ---------- BATCH MODE ---------- */
@@ -919,16 +1054,8 @@ $('startBatchBtn').onclick = async () => {
   const msgs = getBatchMsgs();
   if (!msgs.length) { log('Daftar pesan kosong', 'ERROR'); return; }
 
-  const fetchAcc = getOwner() || getSenders()[0];
-  if (!fetchAcc) {
-    log('❌ Tidak ada akun valid. Login ulang dulu.', 'ERROR');
-    return;
-  }
-  if (!isValid(fetchAcc)) {
-    log(`❌ Token ${fetchAcc.email} kadaluwarsa. Klik tombol 🔑 di baris akun untuk login ulang.`, 'ERROR');
-    renderAccounts();
-    return;
-  }
+  const fetchAcc = getSenders()[0];
+  if (!fetchAcc) { log('❌ Tidak ada akun valid. Login ulang dulu.', 'ERROR'); return; }
   try {
     gapi.client.setToken({ access_token: fetchAcc.accessToken });
     await gapi.client.youtube.videos.list({ part: 'id', id: 'dQw4w9WgXcQ' });
@@ -970,38 +1097,14 @@ $('startBatchBtn').onclick = async () => {
 
   let targets = [];
   try {
-    for (let i = 0; i < selected.length; i += 50) {
-      const batch = selected.slice(i, i + 50);
-      const res = await gapi.client.youtube.videos.list({
-        part: 'liveStreamingDetails,snippet',
-        id: batch.join(',')
-      });
-      for (const it of res.result.items || []) {
-        const d = it.liveStreamingDetails || {};
-        if (!d.activeLiveChatId) { log(`⚠ Skip ${it.id}: chat tidak aktif`, 'ERROR'); continue; }
-
-        // Skip HANYA kalau sudah benar-benar berakhir
-        if (d.actualEndTime) {
-          log(`🚫 SKIP "${it.snippet.title.slice(0, 40)}" (sudah berakhir)`, 'ERROR');
-          continue;
-        }
-
-        // Tentukan status untuk info saja (tidak untuk skip)
-        let statusLabel = 'LIVE';
-        if (d.actualStartTime) statusLabel = 'LIVE';
-        else if (d.scheduledStartTime) statusLabel = `PRE-LIVE (jadwal ${new Date(d.scheduledStartTime).toLocaleString('id-ID')})`;
-        else statusLabel = 'LIVE';
-
-        log(`✓ "${it.snippet.title.slice(0, 40)}" — ${statusLabel}`, 'SUCCESS');
-        targets.push({ videoId: it.id, title: it.snippet.title, chatId: d.activeLiveChatId });
-      }
-    }
+    targets = await fetchTargets(selected);
   } catch(e) {
     const info = errInfo(e);
+    const bad = lastFetchAcc || fetchAcc;
     if (isAuthError(info)) {
-      log(`❌ Gagal ambil LiveChatId: Token ${fetchAcc.email} expired.`, 'ERROR');
-      log(`   Solusi: Klik tombol 🔑 di baris ${fetchAcc.email} → login ulang.`, 'INFO');
-      fetchAcc.expiresAt = 0;
+      log(`❌ Gagal ambil LiveChatId: Token ${bad.email} expired.`, 'ERROR');
+      log(`   Solusi: Klik tombol 🔑 di baris ${bad.email} → login ulang.`, 'INFO');
+      bad.expiresAt = 0;
       renderAccounts(); saveState();
     } else {
       log('Gagal ambil LiveChatId: ' + info.msg, 'ERROR');
@@ -1013,7 +1116,7 @@ $('startBatchBtn').onclick = async () => {
   if (!targets.length) { log('Tidak ada target valid', 'ERROR'); batchStop(); return; }
 
   const realTotal = targets.length * commentsPerEvent;
-  log(`✓ ${targets.length} event valid → total ${realTotal} pesan`, 'BATCH');
+  log(`✓ ${targets.length} event valid (dikomen oleh pembuatnya) → total ${realTotal} pesan`, 'BATCH');
 
   const updateProgress = (evI, cmtI, gI, title, msg) => {
     $('batchProgressText').textContent = `${gI} / ${realTotal}`;
@@ -1023,12 +1126,12 @@ $('startBatchBtn').onclick = async () => {
     if (msg) $('batchCurrentMsg').textContent = `"${msg.slice(0, 70)}${msg.length > 70 ? '...' : ''}"`;
   };
 
-  let globalIdx = 0, evIdx = 0, cmtIdx = 0;
+  let globalIdx = 0, evIdx = 0, cmtIdx = 0, okSent = 0;
 
   const sendNext = async () => {
     if (!batchRunning) { log('⏹ Batch dihentikan', 'BATCH'); batchStop(); return; }
     if (evIdx >= targets.length) {
-      log(`🎉 SELESAI! ${realTotal} pesan terkirim ke ${targets.length} event. BOT STOP.`, 'SUCCESS');
+      log(`🎉 SELESAI! ${okSent} dari ${realTotal} pesan terkirim ke ${targets.length} event. BOT STOP.`, 'SUCCESS');
       batchStop(); return;
     }
 
@@ -1037,8 +1140,9 @@ $('startBatchBtn').onclick = async () => {
     updateProgress(evIdx, cmtIdx + 1, globalIdx, ev.title, msg);
     log(`📤 [Ev ${evIdx + 1}/${targets.length}] Komentar ${cmtIdx + 1}/${commentsPerEvent}`, 'BATCH');
 
-    const r = await sendMessage(msg, ev.chatId);
+    const r = await sendMessage(msg, ev.chatId, ev.channelId);
     globalIdx++; cmtIdx++;
+    if (r.ok) okSent++;
 
     if (!batchRunning) { log('⏹ Dibatalkan', 'BATCH'); batchStop(); return; }
     if (r.fatal) { log('❌ Fatal: Sender habis. Stop.', 'ERROR'); batchStop(); return; }
@@ -1046,7 +1150,9 @@ $('startBatchBtn').onclick = async () => {
     updateProgress(evIdx, cmtIdx, globalIdx, ev.title, null);
 
     let nextDelay;
-    if (cmtIdx >= commentsPerEvent) {
+    const skipEvent = !r.ok && (r.noSender || r.dropChat);
+    if (skipEvent) log('   ↷ Sisa komentar event ini dilewati', 'BATCH');
+    if (cmtIdx >= commentsPerEvent || skipEvent) {
       evIdx++; cmtIdx = 0;
       if (evIdx < targets.length) log(`   → Pindah event ${evIdx + 1} (jeda ${gapBetween/1000}s)`, 'BATCH');
       nextDelay = gapBetween;
@@ -1055,7 +1161,7 @@ $('startBatchBtn').onclick = async () => {
     }
 
     if (evIdx >= targets.length) {
-      log(`🎉 SELESAI! ${realTotal} pesan terkirim. BOT STOP otomatis.`, 'SUCCESS');
+      log(`🎉 SELESAI! ${okSent} dari ${realTotal} pesan terkirim. BOT STOP otomatis.`, 'SUCCESS');
       batchStop(); return;
     }
 
@@ -1103,10 +1209,13 @@ function scheduleNext(){
     if (rotateOn()){
       if (!queue.length) return stop('Antrian kosong.');
       const item = queue[qIdx % queue.length];
-      r = await sendMessage(pickMessage(msgs), item.chatId);
-      if (r.dropChat){ queue = queue.filter(q => q !== item); renderQueue(); }
+      r = await sendMessage(pickMessage(msgs), item.chatId, item.channelId);
+      if (r.dropChat || r.noSender){ queue = queue.filter(q => q !== item); renderQueue(); }
       else qIdx++;
-    } else r = await sendMessage(pickMessage(msgs));
+    } else {
+      r = await sendMessage(pickMessage(msgs));
+      if (r.noSender) return stop('Akun pembuat event tidak tersedia.');
+    }
     if (r.fatal) return stop('Fatal.');
     scheduleNext();
   }, sec * 1000);
@@ -1120,7 +1229,7 @@ $('startBtn').onclick = () => {
   if (!getMsgs().length){ log('Pesan kosong', 'ERROR'); return; }
   if (!getSenders().length){ log('Belum ada Sender', 'ERROR'); return; }
   if (rotateOn() ? !queue.length : !liveChatId){ log('Target belum siap', 'ERROR'); return; }
-  running = true; seqIdx = 0; qIdx = 0; senderIdx = 0;
+  running = true; seqIdx = 0; qIdx = 0;
   $('startBtn').disabled = true; $('stopBtn').disabled = false;
   $('addAccountBtn').disabled = true;
   log(`▶ LOOP START`, 'SEND');
@@ -1142,11 +1251,11 @@ $('connectBtn').onclick = async () => {
   const match = vid.match(/([\w-]{11})/);
   const videoId = match ? match[1] : null;
   if (!videoId){ log('Video ID tidak valid', 'ERROR'); return; }
-  const user = getOwner() || accounts.find(a => isValid(a));
+  const user = getSenders()[0] || accounts.find(a => isValid(a));
   if (!user) { log('Tidak ada akun valid. Login dulu.', 'ERROR'); return; }
   if (!isValid(user)) { log(`Token ${user.email} kadaluwarsa. Klik 🔑 untuk login ulang.`, 'ERROR'); return; }
   gapi.client.setToken({ access_token: user.accessToken });
-  liveChatId = null; $('chatIdBox').classList.add('hidden');
+  liveChatId = null; liveChatChannelId = null; $('chatIdBox').classList.add('hidden');
   try {
     const res = await gapi.client.youtube.videos.list({ part: 'liveStreamingDetails,snippet', id: videoId });
     const item = res.result.items && res.result.items[0];
@@ -1160,7 +1269,13 @@ $('connectBtn').onclick = async () => {
       return;
     }
 
+    const creatorAcc = accForChannel(item.snippet.channelId);
+    if (!creatorAcc) {
+      log(`🚫 Event ini milik channel "${item.snippet.channelTitle || item.snippet.channelId}" dan akun pembuatnya belum login / token habis. Hanya pembuat event yang boleh komen.`, 'ERROR');
+      return;
+    }
     liveChatId = d.activeLiveChatId;
+    liveChatChannelId = item.snippet.channelId;
     $('chatIdText').textContent = liveChatId;
     $('chatIdBox').classList.remove('hidden');
     refreshButtons();
@@ -1173,7 +1288,7 @@ $('connectBtn').onclick = async () => {
     } else {
       log(`✓ Video LIVE`, 'SUCCESS');
     }
-    log('LiveChatId: ' + liveChatId, 'SUCCESS');
+    log('LiveChatId: ' + liveChatId + ' • komen oleh ' + (creatorAcc.myChannelTitle || creatorAcc.email), 'SUCCESS');
   } catch(e) {
     const info = errInfo(e);
     if (isAuthError(info)) {
@@ -1191,7 +1306,7 @@ function refreshButtons(){
   $('startBatchBtn').disabled = !hasSenders || selectedVideos.size === 0 || batchRunning || running;
   $('manualSend').disabled = !liveChatId || !hasSenders;
   $('startBtn').disabled = !hasSenders || !(rotateOn() ? queue.length : liveChatId) || running || batchRunning;
-  $('loadQueueBtn').disabled = !getOwner();
+  $('loadQueueBtn').disabled = !getSenders().length;
   $('connectBtn').disabled = !accounts.some(a => isValid(a));
   $('addAccountBtn').disabled = running || batchRunning;
 }
@@ -1201,23 +1316,18 @@ function renderQueue(){
   queue.forEach((q, i) => { const d = document.createElement('div'); d.className = 'break-words'; d.textContent = `${i + 1}. ${q.title}`; el.appendChild(d); });
 }
 $('loadQueueBtn').onclick = async () => {
-  const owner = getOwner();
-  if (!owner || !owner.myChannelId){ log('Owner belum diset / tidak punya channel', 'ERROR'); return; }
-  const ids = [...new Set(csvData.map(r => r.videoId).filter(id => /^[\w-]{11}$/.test(id)))].slice(0, 50);
-  if (!ids.length){ log('CSV kosong', 'ERROR'); return; }
+  if (!getSenders().length){ log('Belum ada akun valid', 'ERROR'); return; }
+  const pool = selectedVideos.size ? csvData.filter(r => selectedVideos.has(r.videoId)) : csvData.filter(r => creatorSel[creatorKey(r)] !== false && rowCommentable(r));
+  const ids = [...new Set(pool.map(r => r.videoId).filter(id => /^[\w-]{11}$/.test(id)))].slice(0, 200);
+  if (!ids.length){ log('CSV kosong / tidak ada event yang akun pembuatnya login', 'ERROR'); return; }
   try {
-    gapi.client.setToken({ access_token: owner.accessToken });
-    const res = await gapi.client.youtube.videos.list({ part: 'liveStreamingDetails,snippet', id: ids.join(',') });
-    const found = res.result.items || [], next = [];
-    for (const it of found){
-      const d = it.liveStreamingDetails || {};
-      if (it.snippet.channelId !== owner.myChannelId) continue;
-      if (d.actualEndTime || !d.activeLiveChatId) continue;
-      next.push({ videoId: it.id, title: it.snippet.title, chatId: d.activeLiveChatId });
-    }
-    queue = next; qIdx = 0; renderQueue(); refreshButtons();
-    log(`Antrian: ${queue.length} video`, 'SUCCESS');
-  } catch(e){ log('Gagal: ' + errInfo(e).msg, 'ERROR'); }
+    queue = await fetchTargets(ids); qIdx = 0; renderQueue(); refreshButtons();
+    log(`Antrian: ${queue.length} video (hanya event milik akun yang login)`, 'SUCCESS');
+  } catch(e){
+    const info = errInfo(e);
+    if (isAuthError(info) && lastFetchAcc) { lastFetchAcc.expiresAt = 0; renderAccounts(); saveState(); log(`Token ${lastFetchAcc.email} expired. Klik 🔑 untuk login ulang.`, 'ERROR'); }
+    else log('Gagal: ' + info.msg, 'ERROR');
+  }
 };
 $('rotateCheck').addEventListener('change', refreshButtons);
 
@@ -1225,7 +1335,7 @@ function logoutAll(){
   if (running || batchRunning) { log('Hentikan bot dulu!', 'ERROR'); return; }
   if (!confirm('Hapus semua akun?')) return;
   accounts.forEach(a => { try { if(a.accessToken) google.accounts.oauth2.revoke(a.accessToken); } catch(e){} });
-  accounts = []; liveChatId = null; queue = [];
+  accounts = []; liveChatId = null; liveChatChannelId = null; queue = [];
   try { gapi.client.setToken(null); } catch(e){}
   try { localStorage.removeItem(KEY); localStorage.removeItem('ytac_clientId'); } catch(e){}
   renderAccounts(); renderQueue();
