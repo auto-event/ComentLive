@@ -154,13 +154,13 @@
     </div>
     <div>
       <label class="text-[11px] sm:text-xs text-zinc-400 font-bold block">JEDA ANTAR KOMENTAR (detik)</label>
-      <input id="gapSameEvent" type="number" value="15" min="5" class="input mt-1">
-      <p class="text-[10px] text-zinc-500 mt-1">Jeda antar komentar di event yang sama.</p>
+      <input id="gapSameEvent" type="number" value="3" min="1" class="input mt-1">
+      <p class="text-[10px] text-zinc-500 mt-1">Jeda antar komentar di event yang sama (min 1 dtk).</p>
     </div>
     <div>
       <label class="text-[11px] sm:text-xs text-zinc-400 font-bold block">JEDA ANTAR EVENT (detik)</label>
-      <input id="gapBetweenEvents" type="number" value="30" min="5" class="input mt-1">
-      <p class="text-[10px] text-zinc-500 mt-1">Jeda ekstra saat pindah event berikutnya.</p>
+      <input id="gapBetweenEvents" type="number" value="2" min="1" class="input mt-1">
+      <p class="text-[10px] text-zinc-500 mt-1">Jeda saat pindah event. Akun/channel berbeda otomatis jalan PARALEL.</p>
     </div>
   </div>
 
@@ -267,6 +267,16 @@ function log(msg, type='INFO'){
 function errInfo(e){
   const er = e && e.result && e.result.error;
   return { code: er ? er.code : null, reason: er && er.errors && er.errors[0] ? er.errors[0].reason : '', msg: er ? er.message : (e && e.message) || String(e) };
+}
+
+/* ---------- FAST HTTP (token per request, aman untuk paralel) ---------- */
+async function ytFetch(token, path, opts = {}) {
+  const r = await fetch('https://www.googleapis.com/youtube/v3/' + path, {
+    ...opts, headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw { result: { error: j.error || { code: r.status, message: r.statusText } } };
+  return j;
 }
 function isAuthError(info){
   if (!info) return false;
@@ -997,19 +1007,14 @@ async function verifySentMessage(sender, text, chatId, sentAtMs){
   const needle = normalizeForCompare(text).slice(0, 20);
   if (!needle) return null;
 
-  const delays = [5000, 10000, 15000];
+  const delays = [3000, 6000];
 
   for (let attempt = 0; attempt < delays.length; attempt++) {
     await new Promise(r => setTimeout(r, delays[attempt]));
 
     try {
-      gapi.client.setToken({ access_token: sender.accessToken });
-      const res = await gapi.client.youtube.liveChatMessages.list({
-        liveChatId: chatId,
-        part: 'snippet',
-        maxResults: 200
-      });
-      const items = res.result.items || [];
+      const res = await ytFetch(sender.accessToken, 'liveChat/messages?part=snippet&maxResults=200&liveChatId=' + encodeURIComponent(chatId));
+      const items = res.items || [];
 
       const found = items.some(it => {
         const t = (it.snippet && it.snippet.textMessageDetails && it.snippet.textMessageDetails.messageText) || '';
@@ -1049,34 +1054,24 @@ async function sendMessage(text, chatId = liveChatId, channelId = liveChatChanne
   const sentAt = Date.now();
 
   try {
-    gapi.client.setToken({ access_token: sender.accessToken });
-    await gapi.client.youtube.liveChatMessages.insert({
-      part: 'snippet',
-      resource: { snippet: { liveChatId: chatId, type: 'textMessageEvent', textMessageDetails: { messageText: text } } }
+    await ytFetch(sender.accessToken, 'liveChat/messages?part=snippet', {
+      method: 'POST',
+      body: JSON.stringify({ snippet: { liveChatId: chatId, type: 'textMessageEvent', textMessageDetails: { messageText: text } } })
     });
 
     sender.sentCount = (sender.sentCount || 0) + 1;
     sentCount++; updateCounter();
 
     const verifyOn = $('verifyCheck') && $('verifyCheck').checked;
-    let verified = null;
+    log(`✓ [${sender.email.split('@')[0]}] ${text.slice(0, 45)}`, 'SUCCESS');
     if (verifyOn) {
-      log(`🔍 Memverifikasi "${text.slice(0, 25)}..."`, 'VERIFY');
-      verified = await verifySentMessage(sender, text, chatId, sentAt);
+      // verifikasi jalan di background, TIDAK menahan antrean kirim
+      verifySentMessage(sender, text, chatId, sentAt).then(v => {
+        if (v === true) { sender.verifyOk = (sender.verifyOk || 0) + 1; log(`   ✓verif ${text.slice(0, 25)}`, 'VERIFY'); }
+        else if (v === false) { sender.verifyMiss = (sender.verifyMiss || 0) + 1; log(`   ⚠ verif tidak menemukan "${text.slice(0, 25)}" (bisa false alarm emoji)`, 'ERROR'); }
+        renderAccounts(); saveState();
+      });
     }
-
-    if (verified === false) {
-      sender.verifyMiss = (sender.verifyMiss || 0) + 1;
-      log(`⚠ [${sender.email.split('@')[0]}] Verify tidak menemukan pesan (kemungkinan false alarm emoji).`, 'ERROR');
-      log(`   Pesan SUDAH terkirim lewat API. Cek manual di YouTube.`, 'INFO');
-      // TIDAK auto-disable
-    } else if (verified === true) {
-      sender.verifyOk = (sender.verifyOk || 0) + 1;
-      log(`✓ [${sender.email.split('@')[0]}] ${text.slice(0, 45)} ✓verif`, 'SUCCESS');
-    } else {
-      log(`✓ [${sender.email.split('@')[0]}] ${text.slice(0, 45)}`, 'SUCCESS');
-    }
-
     renderAccounts(); saveState();
     return { ok:true };
   } catch(e){
@@ -1167,8 +1162,8 @@ $('startBatchBtn').onclick = async () => {
   }
 
   const commentsPerEvent = Math.max(1, parseInt($('commentsPerEvent').value) || 1);
-  const gapSame = Math.max(5, parseInt($('gapSameEvent').value) || 15) * 1000;
-  const gapBetween = Math.max(5, parseInt($('gapBetweenEvents').value) || 30) * 1000;
+  const gapSame = Math.max(1, parseInt($('gapSameEvent').value) || 3) * 1000;
+  const gapBetween = Math.max(1, parseInt($('gapBetweenEvents').value) || 2) * 1000;
   const shuffle = $('shuffleMessages').checked;
 
   let msgPool = [...msgs];
@@ -1214,57 +1209,57 @@ $('startBatchBtn').onclick = async () => {
   const realTotal = targets.length * commentsPerEvent;
   log(`✓ ${targets.length} event valid (dikomen oleh pembuatnya) → total ${realTotal} pesan`, 'BATCH');
 
-  const updateProgress = (evI, cmtI, gI, title, msg) => {
-    $('batchProgressText').textContent = `${gI} / ${realTotal}`;
-    $('batchProgressFill').style.width = `${(gI / realTotal) * 100}%`;
-    $('batchCurrentEvent').textContent = `${evI + 1}/${targets.length}`;
-    $('batchCurrentComment').textContent = `${cmtI}/${commentsPerEvent}`;
+  // pesan ditetapkan di awal agar urutan tetap rapi walau jalan paralel
+  const msgFor = (evPos, c) => msgPool[(evPos * commentsPerEvent + c) % msgPool.length];
+
+  // 1 lane per akun pembuat (channel). Lane berbeda jalan bersamaan.
+  const lanes = new Map();
+  targets.forEach((t, pos) => {
+    if (!lanes.has(t.channelId)) lanes.set(t.channelId, []);
+    lanes.get(t.channelId).push({ ...t, pos });
+  });
+  log(`⚡ ${lanes.size} jalur paralel (1 per akun pembuat)`, 'BATCH');
+
+  let done = 0, okSent = 0, evDone = 0;
+  const updateProgress = (msg) => {
+    $('batchProgressText').textContent = `${done} / ${realTotal}`;
+    $('batchProgressFill').style.width = `${(done / realTotal) * 100}%`;
+    $('batchCurrentEvent').textContent = `${evDone}/${targets.length}`;
+    $('batchCurrentComment').textContent = `${okSent} ok`;
     if (msg) $('batchCurrentMsg').textContent = `"${msg.slice(0, 70)}${msg.length > 70 ? '...' : ''}"`;
   };
+  const sleep = async (ms) => { const end = Date.now() + ms; while (batchRunning && Date.now() < end) await new Promise(r => setTimeout(r, Math.min(200, end - Date.now()))); };
 
-  let globalIdx = 0, evIdx = 0, cmtIdx = 0, okSent = 0;
-
-  const sendNext = async () => {
-    if (!batchRunning) { log('⏹ Batch dihentikan', 'BATCH'); batchStop(); return; }
-    if (evIdx >= targets.length) {
-      log(`🎉 SELESAI! ${okSent} dari ${realTotal} pesan terkirim ke ${targets.length} event. BOT STOP.`, 'SUCCESS');
-      batchStop(); return;
+  const runLane = async (evs) => {
+    for (let e = 0; e < evs.length; e++) {
+      const ev = evs[e];
+      for (let c = 0; c < commentsPerEvent; c++) {
+        if (!batchRunning) return;
+        const msg = msgFor(ev.pos, c);
+        updateProgress(msg);
+        log(`📤 [Ev ${ev.pos + 1}/${targets.length}] Komentar ${c + 1}/${commentsPerEvent}`, 'BATCH');
+        const r = await sendMessage(msg, ev.chatId, ev.channelId);
+        done++; if (r.ok) okSent++;
+        updateProgress(null);
+        if (!batchRunning) return;
+        if (r.fatal) { log('❌ Fatal: Sender habis. Stop.', 'ERROR'); batchRunning = false; return; }
+        if (!r.ok && (r.noSender || r.dropChat)) {
+          log('   ↷ Sisa komentar event ini dilewati', 'BATCH');
+          done += commentsPerEvent - c - 1;
+          break;
+        }
+        if (c < commentsPerEvent - 1) await sleep(gapSame);
+      }
+      evDone++; updateProgress(null);
+      if (e < evs.length - 1) await sleep(gapBetween);
     }
-
-    const ev = targets[evIdx];
-    const msg = msgPool[globalIdx % msgPool.length];
-    updateProgress(evIdx, cmtIdx + 1, globalIdx, ev.title, msg);
-    log(`📤 [Ev ${evIdx + 1}/${targets.length}] Komentar ${cmtIdx + 1}/${commentsPerEvent}`, 'BATCH');
-
-    const r = await sendMessage(msg, ev.chatId, ev.channelId);
-    globalIdx++; cmtIdx++;
-    if (r.ok) okSent++;
-
-    if (!batchRunning) { log('⏹ Dibatalkan', 'BATCH'); batchStop(); return; }
-    if (r.fatal) { log('❌ Fatal: Sender habis. Stop.', 'ERROR'); batchStop(); return; }
-
-    updateProgress(evIdx, cmtIdx, globalIdx, ev.title, null);
-
-    let nextDelay;
-    const skipEvent = !r.ok && (r.noSender || r.dropChat);
-    if (skipEvent) log('   ↷ Sisa komentar event ini dilewati', 'BATCH');
-    if (cmtIdx >= commentsPerEvent || skipEvent) {
-      evIdx++; cmtIdx = 0;
-      if (evIdx < targets.length) log(`   → Pindah event ${evIdx + 1} (jeda ${gapBetween/1000}s)`, 'BATCH');
-      nextDelay = gapBetween;
-    } else {
-      nextDelay = gapSame;
-    }
-
-    if (evIdx >= targets.length) {
-      log(`🎉 SELESAI! ${okSent} dari ${realTotal} pesan terkirim. BOT STOP otomatis.`, 'SUCCESS');
-      batchStop(); return;
-    }
-
-    batchTimer = setTimeout(sendNext, nextDelay);
   };
 
-  batchTimer = setTimeout(sendNext, 2000);
+  await sleep(500);
+  await Promise.all([...lanes.values()].map(runLane));
+  if (batchRunning) log(`🎉 SELESAI! ${okSent} dari ${realTotal} pesan terkirim ke ${targets.length} event. BOT STOP.`, 'SUCCESS');
+  else log('⏹ Batch berhenti', 'BATCH');
+  batchStop();
 };
 
 function batchStop() {
